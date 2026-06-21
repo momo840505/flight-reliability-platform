@@ -39,7 +39,6 @@ A reproducible analytics platform that transforms official U.S. flight-performan
 - [Limitations](#-limitations)
 - [Future Improvements](#-future-improvements)
 - [Skills Demonstrated](#-skills-demonstrated)
-- [Author](#-author)
 
 ---
 
