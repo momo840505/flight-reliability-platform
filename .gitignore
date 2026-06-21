@@ -1,0 +1,45 @@
+# Python virtual environment
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Environment variables
+.env
+
+# Jupyter temporary files
+.ipynb_checkpoints/
+
+# Raw and generated data
+data/raw/*
+!data/raw/.gitkeep
+
+data/interim/*
+!data/interim/.gitkeep
+
+data/processed/*
+!data/processed/.gitkeep
+
+data/reference/*
+!data/reference/.gitkeep
+
+# Machine learning models
+models/*
+!models/.gitkeep
+
+# Power BI temporary files
+~$*.pbix
+*.pbit.tmp
+
+# Logs
+*.log
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
