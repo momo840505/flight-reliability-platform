@@ -50,6 +50,7 @@ BTS Raw Data
 - [x] Star schema created
 - [x] Warehouse loading pipeline completed
 - [x] Warehouse validation completed
-- [ ] SQL analytics completed
-- [ ] Power BI dashboard created
+- [x] SQL analytics views created
+- [x] Power BI dashboard created
+- [ ] Dashboard screenshots added to README
 - [ ] Delay prediction model created
