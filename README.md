@@ -46,7 +46,10 @@ BTS Raw Data
 - [x] Raw data quality validation completed
 - [x] Data cleaning pipeline completed
 - [x] Cleaned Parquet dataset created
-- [ ] PostgreSQL warehouse created
+- [x] PostgreSQL connection configured
+- [x] Star schema created
+- [x] Warehouse loading pipeline completed
+- [x] Warehouse validation completed
 - [ ] SQL analytics completed
 - [ ] Power BI dashboard created
 - [ ] Delay prediction model created
