@@ -41,9 +41,12 @@ BTS Raw Data
 
 - [x] Project structure created
 - [x] Python virtual environment configured
-- [ ] Pilot dataset downloaded
-- [ ] Raw data validation completed
-- [ ] Data cleaning pipeline completed
+- [x] Pilot dataset downloaded
+- [x] Raw data profiling completed
+- [x] Raw data quality validation completed
+- [x] Data cleaning pipeline completed
+- [x] Cleaned Parquet dataset created
 - [ ] PostgreSQL warehouse created
+- [ ] SQL analytics completed
 - [ ] Power BI dashboard created
 - [ ] Delay prediction model created
