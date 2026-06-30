@@ -35,6 +35,7 @@ A reproducible analytics platform that transforms official U.S. flight-performan
 - [Local Setup](#-local-setup)
 - [Running the Pipeline](#-running-the-pipeline)
 - [Power BI Report](#-power-bi-report)
+- [Engineering Notes](#-engineering-notes)
 - [Current Status](#-current-status)
 - [Limitations](#-limitations)
 - [Future Improvements](#-future-improvements)
@@ -1053,6 +1054,17 @@ Environment template
 Dependency list
 Technical documentation
 ```
+
+---
+
+# Engineering Notes
+
+Additional production-style engineering notes are included for maintainability and portfolio review:
+
+- [Testing strategy](docs/testing_strategy.md)
+- [Incremental loading design](docs/incremental_loading_design.md)
+
+These documents explain how the project can move from a pilot BI platform into a more automated data engineering workflow with CI checks, reproducible PostgreSQL setup, and monthly incremental loading.
 
 ---
 
