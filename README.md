@@ -1090,8 +1090,9 @@ These documents explain how the project can move from a pilot BI platform into a
 - [x] Route analysis completed
 - [x] Time-pattern analysis completed
 - [x] Dashboard screenshots added to README
+- [x] Automated unit tests for the core cleaning/transformation logic
 - [ ] Multi-month incremental loading
-- [ ] Automated pipeline tests
+- [ ] Automated tests for warehouse loading and validation scripts
 - [ ] Full airline-name reference dimension
 - [ ] Delay prediction model
 - [ ] Cloud deployment
@@ -1137,13 +1138,19 @@ Add:
 
 ## Automated tests
 
-Add unit and integration tests for:
+`tests/test_clean_transform_helpers.py` now covers the core cleaning/transformation
+function (`clean_flight_dataframe` in `src/transform/clean_flight_data.py`): route-code
+construction, the weekend indicator, flight-status classification (including the
+cancelled/diverted precedence rule), on-time arrival logic, delay-cause reporting and
+totals, exact-duplicate detection, and the data-quality guardrails (missing columns,
+invalid dates, incomplete flight keys).
 
-- Transformation functions
-- Validation functions
-- Dimension creation
-- Fact loading
-- Source-to-target reconciliation
+Still to add:
+
+- Unit tests for the warehouse-loading logic (`src/load/load_warehouse.py`)
+- Unit tests for the validation scripts (`src/validation/*.py`)
+- Integration tests covering dimension creation, fact loading, and source-to-target
+  reconciliation end to end
 
 ## Delay prediction model
 
