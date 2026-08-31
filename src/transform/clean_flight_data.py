@@ -183,37 +183,41 @@ def extract_hour_from_hhmm(
     return hour_values.astype("Int8")
 
 
-def main() -> None:
-    """Clean the raw BTS flight data and save it as Parquet."""
+def clean_flight_dataframe(
+    flight_data: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Apply every BTS flight-data cleaning transformation and return the
+    result.
 
-    if not RAW_DATA_FILE.exists():
-        raise FileNotFoundError(
-            f"Raw data file was not found:\n{RAW_DATA_FILE}"
-        )
+    REFACTOR NOTE: this used to be inlined directly inside main(), which
+    meant the only way to exercise this logic was to run the full script
+    against a real ~500k-row CSV file on disk -- there was no way to unit
+    test it. Pulling it out into a pure function (DataFrame in, DataFrame
+    out, no file I/O) lets tests/test_clean_transform_helpers.py build a
+    small synthetic DataFrame with just a handful of rows and assert on
+    the exact transformation behaviour (route codes, weekend flag,
+    flight_status transitions, on-time logic, delay-cause handling,
+    duplicate removal, and the data-quality guardrails) without needing
+    the real dataset. main() below is now just I/O plumbing around this
+    function; the previous CLI/file-writing behaviour is unchanged.
 
-    PROCESSED_DATA_DIRECTORY.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    The returned DataFrame's ``.attrs["exact_duplicate_count"]`` holds the
+    number of exact duplicate rows that were removed. This is computed at
+    the same point in the pipeline as the original inlined code did --
+    right before drop_duplicates(), on the fully prepared (renamed,
+    date-parsed, string-cleaned, type-cast) DataFrame, never on the raw
+    input -- so main() no longer needs to (and must not) recompute it
+    separately from raw_flight_data. It's attached to the final returned
+    frame rather than relied upon to survive every intermediate pandas
+    operation, so it's read reliably regardless of pandas version.
 
-    INTERIM_DATA_DIRECTORY.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    print("=" * 70)
-    print("BTS FLIGHT DATA CLEANING")
-    print("=" * 70)
-    print(f"Reading raw data: {RAW_DATA_FILE}")
-    print("This may take approximately 30 to 90 seconds.")
-
-    flight_data = pd.read_csv(
-        RAW_DATA_FILE,
-        low_memory=False,
-    )
-
-    original_row_count = len(flight_data)
-    original_column_count = len(flight_data.columns)
+    Raises:
+        ValueError: if required source columns, valid flight dates, or
+            complete flight-key values are missing (unchanged behaviour
+            from before the refactor -- these are data-quality checks
+            that used to raise directly inside main()).
+    """
 
     missing_source_columns = sorted(
         set(COLUMN_RENAME_MAP)
@@ -292,7 +296,9 @@ def main() -> None:
             "rows have missing flight key values."
         )
 
-    # Remove only exact duplicate rows
+    # Remove only exact duplicate rows. Counted here -- on the fully
+    # prepared frame, right before removal -- to match the original
+    # (pre-refactor) semantics exactly.
     exact_duplicate_count = int(
         flight_data.duplicated().sum()
     )
@@ -400,6 +406,54 @@ def main() -> None:
         ],
         kind="stable",
     ).reset_index(drop=True)
+
+    # Attach here (on the object actually being returned) rather than
+    # trusting .attrs to survive every operation above.
+    flight_data.attrs["exact_duplicate_count"] = exact_duplicate_count
+
+    return flight_data
+
+
+def main() -> None:
+    """Clean the raw BTS flight data and save it as Parquet."""
+
+    if not RAW_DATA_FILE.exists():
+        raise FileNotFoundError(
+            f"Raw data file was not found:\n{RAW_DATA_FILE}"
+        )
+
+    PROCESSED_DATA_DIRECTORY.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    INTERIM_DATA_DIRECTORY.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    print("=" * 70)
+    print("BTS FLIGHT DATA CLEANING")
+    print("=" * 70)
+    print(f"Reading raw data: {RAW_DATA_FILE}")
+    print("This may take approximately 30 to 90 seconds.")
+
+    raw_flight_data = pd.read_csv(
+        RAW_DATA_FILE,
+        low_memory=False,
+    )
+
+    original_row_count = len(raw_flight_data)
+    original_column_count = len(raw_flight_data.columns)
+
+    flight_data = clean_flight_dataframe(raw_flight_data)
+
+    # Computed inside clean_flight_dataframe(), on the fully prepared
+    # frame right before drop_duplicates() -- matches the original
+    # (pre-refactor) semantics. Do not recompute this from
+    # raw_flight_data here: the raw frame is untyped/unrenamed, so a
+    # duplicate count taken directly from it is not the same number.
+    exact_duplicate_count = flight_data.attrs["exact_duplicate_count"]
 
     cleaned_row_count = len(flight_data)
     cleaned_column_count = len(flight_data.columns)
