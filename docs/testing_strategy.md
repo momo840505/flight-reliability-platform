@@ -4,12 +4,17 @@ This project uses testing and validation at three levels: Python code health, da
 
 ## 1. Python Code Health
 
-The GitHub Actions workflow runs on every push and pull request. It installs dependencies, runs tests when a `tests/` directory exists, and compiles all Python source files under `src/`.
+The GitHub Actions workflow runs on every push and pull request. It installs dependencies, runs tests under `tests/`, and compiles all Python source files under `src/`.
 
 ```bash
 python -m pytest -q
 python -m compileall -q src
 ```
+
+`tests/test_clean_transform_helpers.py` unit-tests `clean_flight_dataframe()`, the pure
+transformation function in `src/transform/clean_flight_data.py` (see section 3 below for
+what it covers). `src/load/load_warehouse.py` and the `src/validation/*.py` scripts do
+not have unit tests yet.
 
 ## 2. Data Validation
 
@@ -21,16 +26,24 @@ The pipeline already includes validation scripts for:
 
 These checks are part of the portfolio value of the project because they show that the platform is not only a Power BI dashboard. It also validates source-to-target data integrity.
 
-## 3. Recommended Unit Tests
+## 3. Unit Tests
 
-Add unit tests for transformation functions that do not require the full raw CSV:
+`clean_flight_dataframe()` was extracted from the body of `main()` into a standalone,
+DataFrame-in/DataFrame-out pure function specifically so it could be unit-tested without
+the full raw CSV. `tests/test_clean_transform_helpers.py` covers:
 
 - route-code construction;
-- flight-status classification;
-- on-time arrival and departure flags;
-- scheduled-hour parsing;
+- flight-status classification, including the cancelled/diverted precedence rule;
+- on-time arrival flag (only set for completed flights with a known arrival-delay value);
+- scheduled-hour parsing (`extract_hour_from_hhmm`, including the HHMM=2400 edge case);
 - weekend indicator generation;
-- delay-cause total calculation.
+- delay-cause reporting and total-minutes calculation;
+- exact-duplicate detection and removal;
+- the data-quality guardrails: missing source columns, invalid flight dates, and
+  incomplete flight-key values all raise `ValueError`.
+
+Not yet covered: `src/load/load_warehouse.py` and the `src/validation/*.py` scripts —
+see the integration and SQL smoke-test sections below.
 
 ## 4. Recommended Integration Tests
 
