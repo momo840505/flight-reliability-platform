@@ -778,21 +778,14 @@ flight-reliability-platform/
 │           └── time_patterns.png
 │
 ├── models/
-│
-├── notebooks/
-│
 ├── powerbi/
 │   └── flight_reliability_dashboard.pbix
-│
 ├── sql/
 │   ├── analytics/
 │   │   └── 001_create_analytics_views.sql
-│   ├── schema/
-│   │   └── 001_create_warehouse.sql
-│   └── staging/
-│
+│   └── schema/
+│       └── 001_create_warehouse.sql
 ├── src/
-│   ├── extract/
 │   ├── load/
 │   │   ├── load_warehouse.py
 │   │   └── test_database_connection.py
@@ -803,11 +796,17 @@ flight-reliability-platform/
 │       ├── validate_raw_data.py
 │       ├── validate_clean_data.py
 │       └── validate_warehouse.py
-│
 ├── tests/
+│   └── test_clean_transform_helpers.py
+│
+├── .github/
+│   └── workflows/
+│       └── tests.yml
 │
 ├── .env.example
 ├── .gitignore
+├── docker-compose.yml
+├── LICENSE
 ├── README.md
 └── requirements.txt
 ```
