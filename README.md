@@ -28,6 +28,7 @@ A reproducible analytics platform that transforms official U.S. flight-performan
 - [Technology Stack](#-technology-stack)
 - [Data Warehouse Design](#-data-warehouse-design)
 - [Data Quality Framework](#-data-quality-framework)
+- [Notes From Fixing This Myself](#️-notes-from-fixing-this-myself)
 - [Data Cleaning and Transformation](#-data-cleaning-and-transformation)
 - [Metric Definitions](#-metric-definitions)
 - [Selected Insights](#-selected-insights)
@@ -45,9 +46,9 @@ A reproducible analytics platform that transforms official U.S. flight-performan
 
 # 🚀 Project Overview
 
-The **U.S. Flight Reliability Intelligence Platform** is an end-to-end data engineering and business intelligence project built using official flight-performance data from the U.S. Bureau of Transportation Statistics.
+I built this to prove to myself (and hopefully to whoever's reading this) that I can do more than put together a dashboard. I wanted to go through an actual end-to-end pipeline on real government data -- U.S. Bureau of Transportation Statistics flight-performance records, all the way from a raw CSV to a PostgreSQL warehouse to a Power BI report.
 
-The project covers the complete analytics lifecycle:
+Here's the flow it goes through:
 
 ```text
 Raw CSV
@@ -69,13 +70,13 @@ SQL Analytics Views
 Power BI Dashboard
 ```
 
-The current pilot dataset contains reporting-carrier flight records for:
+Right now it's a pilot running on one month of data:
 
 ```text
 January 2024
 ```
 
-The project was designed to demonstrate more than dashboard creation. It includes reproducible Python pipelines, validation rules, dimensional modelling, bulk database loading, SQL analytics, DAX measures, and technical documentation.
+I picked one month on purpose -- it's still 500K+ real rows, enough to make the cleaning and validation steps actually matter, without making every test run of the pipeline take forever while I was building it. The validation rules, warehouse design, SQL views and DAX measures were all built to scale to more months later (see Future Improvements below).
 
 ---
 
@@ -105,7 +106,7 @@ The project was designed to demonstrate more than dashboard creation. It include
 
 # ❓ Business Questions
 
-The platform was designed to answer practical operational questions.
+I framed the whole thing around questions an airline ops or BI team would actually ask, not just metrics for their own sake:
 
 ### Overall reliability
 
@@ -520,6 +521,7 @@ Checks include:
 - Duplicate flight keys
 - Invalid cancellation indicators
 - Invalid diversion indicators
+- Missing distance values
 - Negative unsigned values
 - Departure delay-indicator consistency
 - Arrival delay-indicator consistency
@@ -546,6 +548,7 @@ Checks include:
 - Route-code consistency
 - Weekend-indicator consistency
 - Scheduled-hour validity
+- Missing distance values
 - Negative measurements
 - Delay-cause total consistency
 - Arrival on-time consistency
@@ -582,6 +585,17 @@ Result:
 ```text
 Overall status: PASS
 ```
+
+---
+
+# 🛠️ Notes From Fixing This Myself
+
+After I had the whole pipeline running end to end, I went back through my own validation scripts to make sure the PASS badges weren't just for show, and found two real gaps:
+
+- The non-negative checks did `flight_data[column] < 0`, and in pandas `NaN < 0` evaluates to `False`. `distance_miles` is supposed to be NOT NULL in the warehouse, so a missing value there would have slipped past every check I had until the database itself rejected it. I added an explicit "not missing" check for it instead of relying on the negative-value check to catch it.
+- The warehouse load's own row-count reconciliation ran *after* the database connection had already committed. So if the counts ever didn't match, the bad data would already be sitting in the warehouse by the time I found out -- the check could report the problem but not actually undo it. I moved it inside the transaction so a mismatch now rolls the load back.
+
+Neither of these showed up while running the pipeline against a clean January 2024 file, which is exactly why I think they're worth writing down here: a validation script passing doesn't automatically mean the validation logic itself is airtight. I only caught these by re-reading my own code with a "how would this actually fail" mindset instead of just checking that it ran.
 
 ---
 
@@ -722,6 +736,8 @@ Calculated using signed departure-delay minutes.
 # 💡 Selected Insights
 
 ## Overall reliability
+
+A few things stood out once I had the dashboard up:
 
 - Approximately **75.9%** of eligible arrivals were on time.
 - Approximately **76.8%** of eligible departures were on time.
