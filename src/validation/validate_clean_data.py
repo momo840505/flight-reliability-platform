@@ -463,6 +463,22 @@ def main() -> None:
         ),
     )
 
+    missing_distance_count = int(
+        flight_data["distance_miles"].isna().sum()
+    )
+
+    add_result(
+        validation_results,
+        rule_name="distance_miles_not_missing",
+        failed_row_count=missing_distance_count,
+        description=(
+            "distance_miles must always be present -- it loads into a "
+            "NOT NULL warehouse column, and the non-negative check below "
+            "wouldn't catch a missing value on its own (NaN < 0 is False "
+            "in pandas)."
+        ),
+    )
+
     negative_measurement_count = int(
         (
             flight_data[

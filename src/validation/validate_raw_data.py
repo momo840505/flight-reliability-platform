@@ -330,6 +330,24 @@ def main() -> None:
         description="DIVERTED must contain only 0 or 1.",
     )
 
+    missing_distance_count = int(
+        flight_data["DISTANCE"].isna().sum()
+    )
+
+    add_validation_result(
+        validation_results,
+        rule_name="distance_not_missing",
+        severity="critical",
+        failed_row_count=missing_distance_count,
+        description=(
+            "DISTANCE must always be present. It loads into a NOT NULL "
+            "warehouse column, and the non-negative check below can't "
+            "catch a missing value on its own (NaN < 0 evaluates to "
+            "False in pandas, so a null distance would otherwise slip "
+            "through as if it passed)."
+        ),
+    )
+
     negative_value_mask = pd.DataFrame(
         {
             column_name: (
