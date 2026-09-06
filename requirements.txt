@@ -1,8 +1,5 @@
 pandas
 pyarrow
-openpyxl
 python-dotenv
 pytest
-jupyter
-SQLAlchemy
 psycopg[binary]

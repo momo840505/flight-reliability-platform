@@ -343,7 +343,6 @@ data/raw/flights_2024_01.csv
 
 - PostgreSQL 18
 - psycopg 3
-- SQLAlchemy
 - PostgreSQL `COPY`
 - Star schema modelling
 

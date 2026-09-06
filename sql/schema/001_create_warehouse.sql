@@ -1,5 +1,4 @@
 -- Create schemas for the flight reliability platform
-CREATE SCHEMA IF NOT EXISTS staging;
 CREATE SCHEMA IF NOT EXISTS warehouse;
 
 
