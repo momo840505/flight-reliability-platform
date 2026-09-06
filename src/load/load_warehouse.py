@@ -782,12 +782,20 @@ def main() -> None:
             )
             loaded_fact_count = cursor.fetchone()[0]
 
-    if loaded_fact_count != source_row_count:
-        raise RuntimeError(
-            "Fact row count does not match source data. "
-            f"Source: {source_row_count:,}, "
-            f"Warehouse: {loaded_fact_count:,}"
-        )
+            # This check has to run in here, before the `with connection`
+            # block below exits and commits. It used to sit after both
+            # `with` blocks closed, which meant the mismatch was only ever
+            # detected *after* everything was already committed -- raising
+            # RuntimeError at that point couldn't undo anything. Raising it
+            # from inside the transaction lets psycopg's connection context
+            # manager roll the whole load back instead.
+            if loaded_fact_count != source_row_count:
+                raise RuntimeError(
+                    "Fact row count does not match source data. "
+                    f"Source: {source_row_count:,}, "
+                    f"Warehouse: {loaded_fact_count:,}. "
+                    "Rolling back -- nothing was committed."
+                )
 
     summary_lines = [
         "POSTGRESQL DATA WAREHOUSE LOAD SUMMARY",
