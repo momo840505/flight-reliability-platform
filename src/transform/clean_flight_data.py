@@ -2,91 +2,22 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.contracts import (
+    CLEAN_FLIGHT_KEY_COLUMNS,
+    DELAY_CAUSE_COLUMNS,
+    SOURCE_COLUMN_RENAME_MAP,
+    SOURCE_COLUMNS,
+    WAREHOUSE_REQUIRED_CLEAN_COLUMNS,
+)
 
-# Locate project directories
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+RAW_DATA_FILE = PROJECT_ROOT / "data" / "raw" / "flights_2024_01.csv"
+PROCESSED_DATA_DIRECTORY = PROJECT_ROOT / "data" / "processed"
+INTERIM_DATA_DIRECTORY = PROJECT_ROOT / "data" / "interim"
+CLEAN_DATA_FILE = PROCESSED_DATA_DIRECTORY / "flights_2024_01_clean.parquet"
+CLEANING_SUMMARY_FILE = INTERIM_DATA_DIRECTORY / "flights_2024_01_cleaning_summary.txt"
 
-RAW_DATA_FILE = (
-    PROJECT_ROOT
-    / "data"
-    / "raw"
-    / "flights_2024_01.csv"
-)
-
-PROCESSED_DATA_DIRECTORY = (
-    PROJECT_ROOT
-    / "data"
-    / "processed"
-)
-
-INTERIM_DATA_DIRECTORY = (
-    PROJECT_ROOT
-    / "data"
-    / "interim"
-)
-
-CLEAN_DATA_FILE = (
-    PROCESSED_DATA_DIRECTORY
-    / "flights_2024_01_clean.parquet"
-)
-
-CLEANING_SUMMARY_FILE = (
-    INTERIM_DATA_DIRECTORY
-    / "flights_2024_01_cleaning_summary.txt"
-)
-
-
-COLUMN_RENAME_MAP = {
-    "YEAR": "year",
-    "QUARTER": "quarter",
-    "MONTH": "month",
-    "DAY_OF_MONTH": "day_of_month",
-    "DAY_OF_WEEK": "day_of_week",
-    "FL_DATE": "flight_date",
-    "OP_UNIQUE_CARRIER": "reporting_airline_code",
-    "OP_CARRIER_AIRLINE_ID": "reporting_airline_id",
-    "TAIL_NUM": "tail_number",
-    "OP_CARRIER_FL_NUM": "flight_number",
-    "ORIGIN_AIRPORT_ID": "origin_airport_id",
-    "ORIGIN": "origin_airport_code",
-    "ORIGIN_CITY_NAME": "origin_city_name",
-    "ORIGIN_STATE_ABR": "origin_state_code",
-    "ORIGIN_STATE_NM": "origin_state_name",
-    "DEST_AIRPORT_ID": "destination_airport_id",
-    "DEST": "destination_airport_code",
-    "DEST_CITY_NAME": "destination_city_name",
-    "DEST_STATE_ABR": "destination_state_code",
-    "DEST_STATE_NM": "destination_state_name",
-    "CRS_DEP_TIME": "scheduled_departure_time",
-    "DEP_TIME": "actual_departure_time",
-    "DEP_DELAY": "departure_delay_minutes_signed",
-    "DEP_DELAY_NEW": "departure_delay_minutes",
-    "DEP_DEL15": "departure_delayed_15",
-    "DEP_TIME_BLK": "departure_time_block",
-    "TAXI_OUT": "taxi_out_minutes",
-    "TAXI_IN": "taxi_in_minutes",
-    "CRS_ARR_TIME": "scheduled_arrival_time",
-    "ARR_TIME": "actual_arrival_time",
-    "ARR_DELAY": "arrival_delay_minutes_signed",
-    "ARR_DELAY_NEW": "arrival_delay_minutes",
-    "ARR_DEL15": "arrival_delayed_15",
-    "ARR_TIME_BLK": "arrival_time_block",
-    "CANCELLED": "cancelled",
-    "CANCELLATION_CODE": "cancellation_code",
-    "DIVERTED": "diverted",
-    "CRS_ELAPSED_TIME": "scheduled_elapsed_minutes",
-    "ACTUAL_ELAPSED_TIME": "actual_elapsed_minutes",
-    "AIR_TIME": "air_time_minutes",
-    "FLIGHTS": "flight_count",
-    "DISTANCE": "distance_miles",
-    "DISTANCE_GROUP": "distance_group",
-    "CARRIER_DELAY": "carrier_delay_minutes",
-    "WEATHER_DELAY": "weather_delay_minutes",
-    "NAS_DELAY": "national_air_system_delay_minutes",
-    "SECURITY_DELAY": "security_delay_minutes",
-    "LATE_AIRCRAFT_DELAY": "late_aircraft_delay_minutes",
-}
-
+COLUMN_RENAME_MAP = SOURCE_COLUMN_RENAME_MAP
 
 INTEGER_COLUMNS = {
     "year": "Int16",
@@ -110,7 +41,6 @@ INTEGER_COLUMNS = {
     "distance_group": "Int8",
 }
 
-
 FLOAT_COLUMNS = [
     "departure_delay_minutes_signed",
     "departure_delay_minutes",
@@ -122,13 +52,8 @@ FLOAT_COLUMNS = [
     "actual_elapsed_minutes",
     "air_time_minutes",
     "distance_miles",
-    "carrier_delay_minutes",
-    "weather_delay_minutes",
-    "national_air_system_delay_minutes",
-    "security_delay_minutes",
-    "late_aircraft_delay_minutes",
+    *DELAY_CAUSE_COLUMNS,
 ]
-
 
 STRING_COLUMNS = [
     "reporting_airline_code",
@@ -147,255 +72,175 @@ STRING_COLUMNS = [
 ]
 
 
-DELAY_CAUSE_COLUMNS = [
-    "carrier_delay_minutes",
-    "weather_delay_minutes",
-    "national_air_system_delay_minutes",
-    "security_delay_minutes",
-    "late_aircraft_delay_minutes",
-]
+def extract_hour_from_hhmm(time_values: pd.Series) -> pd.Series:
+    """Return the hour from valid HHMM values; invalid values become missing."""
 
+    numeric = pd.to_numeric(time_values, errors="coerce").astype("Int64")
+    hours = numeric // 100
+    minutes = numeric % 100
 
-FLIGHT_KEY_COLUMNS = [
-    "flight_date",
-    "reporting_airline_id",
-    "flight_number",
-    "origin_airport_id",
-    "destination_airport_id",
-    "scheduled_departure_time",
-]
-
-
-def extract_hour_from_hhmm(
-    time_values: pd.Series,
-) -> pd.Series:
-    """Extract an hour between 0 and 23 from an HHMM time value."""
-
-    numeric_time_values = pd.to_numeric(
-        time_values,
-        errors="coerce",
-    ).astype("Int64")
-
-    hour_values = (
-        numeric_time_values // 100
-    ) % 24
-
-    return hour_values.astype("Int8")
-
-
-def clean_flight_dataframe(
-    flight_data: pd.DataFrame,
-) -> pd.DataFrame:
-    """
-    Apply every BTS flight-data cleaning transformation and return the
-    result.
-
-    REFACTOR NOTE: this used to be inlined directly inside main(), which
-    meant the only way to exercise this logic was to run the full script
-    against a real ~500k-row CSV file on disk -- there was no way to unit
-    test it. Pulling it out into a pure function (DataFrame in, DataFrame
-    out, no file I/O) lets tests/test_clean_transform_helpers.py build a
-    small synthetic DataFrame with just a handful of rows and assert on
-    the exact transformation behaviour (route codes, weekend flag,
-    flight_status transitions, on-time logic, delay-cause handling,
-    duplicate removal, and the data-quality guardrails) without needing
-    the real dataset. main() below is now just I/O plumbing around this
-    function; the previous CLI/file-writing behaviour is unchanged.
-
-    The returned DataFrame's ``.attrs["exact_duplicate_count"]`` holds the
-    number of exact duplicate rows that were removed. This is computed at
-    the same point in the pipeline as the original inlined code did --
-    right before drop_duplicates(), on the fully prepared (renamed,
-    date-parsed, string-cleaned, type-cast) DataFrame, never on the raw
-    input -- so main() no longer needs to (and must not) recompute it
-    separately from raw_flight_data. It's attached to the final returned
-    frame rather than relied upon to survive every intermediate pandas
-    operation, so it's read reliably regardless of pandas version.
-
-    Raises:
-        ValueError: if required source columns, valid flight dates, or
-            complete flight-key values are missing (unchanged behaviour
-            from before the refactor -- these are data-quality checks
-            that used to raise directly inside main()).
-    """
-
-    missing_source_columns = sorted(
-        set(COLUMN_RENAME_MAP)
-        - set(flight_data.columns)
+    valid = (
+        ((hours.between(0, 23)) & (minutes.between(0, 59)))
+        | (numeric == 2400)
     )
 
+    result = pd.Series(pd.NA, index=time_values.index, dtype="Int8")
+    result.loc[valid] = (hours.loc[valid] % 24).astype("Int8")
+    return result
+
+
+def _raise_if_invalid_scheduled_times(flight_data: pd.DataFrame) -> None:
+    for column_name in ["scheduled_departure_time", "scheduled_arrival_time"]:
+        parsed_hour = extract_hour_from_hhmm(flight_data[column_name])
+        invalid_count = int(parsed_hour.isna().sum())
+        if invalid_count:
+            raise ValueError(
+                f"Cleaning stopped because {invalid_count:,} rows have invalid "
+                f"{column_name} values."
+            )
+
+
+def _raise_if_missing_warehouse_values(flight_data: pd.DataFrame) -> None:
+    missing_counts = {
+        column: int(flight_data[column].isna().sum())
+        for column in WAREHOUSE_REQUIRED_CLEAN_COLUMNS
+        if column in flight_data.columns and flight_data[column].isna().any()
+    }
+    if missing_counts:
+        details = ", ".join(
+            f"{column}={count:,}" for column, count in sorted(missing_counts.items())
+        )
+        raise ValueError(
+            "Cleaning stopped because required warehouse values are missing: "
+            f"{details}"
+        )
+
+
+def clean_flight_dataframe(flight_data: pd.DataFrame) -> pd.DataFrame:
+    """Clean and enrich a BTS flight DataFrame."""
+
+    missing_source_columns = sorted(set(SOURCE_COLUMNS) - set(flight_data.columns))
     if missing_source_columns:
         raise ValueError(
             "Cleaning stopped because source columns are missing: "
             f"{missing_source_columns}"
         )
 
-    # Keep only the fields explicitly selected for this project
-    flight_data = flight_data[
-        list(COLUMN_RENAME_MAP.keys())
-    ].copy()
+    flight_data = flight_data[SOURCE_COLUMNS].copy()
+    flight_data = flight_data.rename(columns=COLUMN_RENAME_MAP)
 
-    # Rename database-style columns to readable snake_case names
-    flight_data = flight_data.rename(
-        columns=COLUMN_RENAME_MAP
-    )
-
-    # Parse the official BTS flight date
     flight_data["flight_date"] = pd.to_datetime(
         flight_data["flight_date"],
         format="%m/%d/%Y %I:%M:%S %p",
         errors="coerce",
     )
-
-    invalid_date_count = int(
-        flight_data["flight_date"].isna().sum()
-    )
-
-    if invalid_date_count > 0:
+    invalid_date_count = int(flight_data["flight_date"].isna().sum())
+    if invalid_date_count:
         raise ValueError(
-            f"Cleaning stopped because {invalid_date_count:,} "
-            "invalid flight dates were found."
+            f"Cleaning stopped because {invalid_date_count:,} invalid flight dates were found."
         )
 
-    # Remove leading and trailing spaces from text fields
     for column_name in STRING_COLUMNS:
         flight_data[column_name] = (
-            flight_data[column_name]
-            .astype("string")
-            .str.strip()
+            flight_data[column_name].astype("string").str.strip().replace("", pd.NA)
         )
 
-        flight_data[column_name] = (
-            flight_data[column_name]
-            .replace("", pd.NA)
-        )
-
-    # Apply nullable integer data types
     for column_name, data_type in INTEGER_COLUMNS.items():
         flight_data[column_name] = pd.to_numeric(
-            flight_data[column_name],
-            errors="coerce",
+            flight_data[column_name], errors="coerce"
         ).astype(data_type)
 
-    # Apply memory-efficient floating-point data types
     for column_name in FLOAT_COLUMNS:
         flight_data[column_name] = pd.to_numeric(
-            flight_data[column_name],
-            errors="coerce",
+            flight_data[column_name], errors="coerce"
         ).astype("Float32")
 
     missing_flight_key_count = int(
-        flight_data[
-            FLIGHT_KEY_COLUMNS
-        ].isna().any(axis=1).sum()
+        flight_data[CLEAN_FLIGHT_KEY_COLUMNS].isna().any(axis=1).sum()
     )
-
-    if missing_flight_key_count > 0:
+    if missing_flight_key_count:
         raise ValueError(
-            f"Cleaning stopped because {missing_flight_key_count:,} "
-            "rows have missing flight key values."
+            f"Cleaning stopped because {missing_flight_key_count:,} rows have "
+            "missing flight key values."
         )
 
-    # Remove only exact duplicate rows. Counted here -- on the fully
-    # prepared frame, right before removal -- to match the original
-    # (pre-refactor) semantics exactly.
-    exact_duplicate_count = int(
-        flight_data.duplicated().sum()
+    invalid_status_flags = (
+        ~flight_data["cancelled"].isin([0, 1])
+        | ~flight_data["diverted"].isin([0, 1])
     )
+    invalid_status_flag_count = int(invalid_status_flags.fillna(True).sum())
+    if invalid_status_flag_count:
+        raise ValueError(
+            f"Cleaning stopped because {invalid_status_flag_count:,} rows have "
+            "invalid cancelled/diverted indicators."
+        )
 
+    both_status_count = int(
+        ((flight_data["cancelled"] == 1) & (flight_data["diverted"] == 1)).sum()
+    )
+    if both_status_count:
+        raise ValueError(
+            f"Cleaning stopped because {both_status_count:,} rows are marked as both "
+            "cancelled and diverted."
+        )
+
+    _raise_if_invalid_scheduled_times(flight_data)
+
+    exact_duplicate_count = int(flight_data.duplicated().sum())
     flight_data = flight_data.drop_duplicates().copy()
 
-    # Record whether delay-cause details were originally supplied
     flight_data["delay_cause_reported"] = (
-        flight_data[
-            DELAY_CAUSE_COLUMNS
-        ]
-        .notna()
-        .any(axis=1)
-        .astype("boolean")
+        flight_data[DELAY_CAUSE_COLUMNS].notna().any(axis=1).astype("boolean")
     )
-
-    # Missing delay-cause values mean no minutes were reported
     flight_data[DELAY_CAUSE_COLUMNS] = (
-        flight_data[
-            DELAY_CAUSE_COLUMNS
-        ]
-        .fillna(0)
-        .astype("Float32")
+        flight_data[DELAY_CAUSE_COLUMNS].fillna(0).astype("Float32")
     )
-
     flight_data["total_reported_delay_minutes"] = (
-        flight_data[
-            DELAY_CAUSE_COLUMNS
-        ]
-        .sum(axis=1)
-        .astype("Float32")
+        flight_data[DELAY_CAUSE_COLUMNS].sum(axis=1).astype("Float32")
     )
 
-    # Create useful analytical fields
+    # Calendar fields are derived from the parsed date so the cleaned output does
+    # not depend on duplicated source calendar attributes.
+    flight_data["year"] = flight_data["flight_date"].dt.year.astype("Int16")
+    flight_data["quarter"] = flight_data["flight_date"].dt.quarter.astype("Int8")
+    flight_data["month"] = flight_data["flight_date"].dt.month.astype("Int8")
+    flight_data["day_of_month"] = flight_data["flight_date"].dt.day.astype("Int8")
+    flight_data["day_of_week"] = (
+        flight_data["flight_date"].dt.dayofweek.add(1).astype("Int8")
+    )
+
     flight_data["route_code"] = (
         flight_data["origin_airport_code"]
         + "-"
         + flight_data["destination_airport_code"]
     ).astype("string")
-
-    flight_data["is_weekend"] = (
-        flight_data["day_of_week"]
-        .isin([6, 7])
-        .astype("boolean")
+    flight_data["is_weekend"] = flight_data["day_of_week"].isin([6, 7]).astype("boolean")
+    flight_data["scheduled_departure_hour"] = extract_hour_from_hhmm(
+        flight_data["scheduled_departure_time"]
     )
-
-    flight_data["scheduled_departure_hour"] = (
-        extract_hour_from_hhmm(
-            flight_data["scheduled_departure_time"]
-        )
-    )
-
-    flight_data["scheduled_arrival_hour"] = (
-        extract_hour_from_hhmm(
-            flight_data["scheduled_arrival_time"]
-        )
+    flight_data["scheduled_arrival_hour"] = extract_hour_from_hhmm(
+        flight_data["scheduled_arrival_time"]
     )
 
     flight_data["flight_status"] = pd.Series(
-        "Completed",
-        index=flight_data.index,
-        dtype="string",
+        "Completed", index=flight_data.index, dtype="string"
     )
-
-    flight_data.loc[
-        flight_data["diverted"] == 1,
-        "flight_status",
-    ] = "Diverted"
-
-    flight_data.loc[
-        flight_data["cancelled"] == 1,
-        "flight_status",
-    ] = "Cancelled"
+    flight_data.loc[flight_data["diverted"] == 1, "flight_status"] = "Diverted"
+    flight_data.loc[flight_data["cancelled"] == 1, "flight_status"] = "Cancelled"
 
     flight_data["arrival_on_time"] = pd.Series(
-        pd.NA,
-        index=flight_data.index,
-        dtype="boolean",
+        pd.NA, index=flight_data.index, dtype="boolean"
     )
-
     completed_arrival_rows = (
         (flight_data["flight_status"] == "Completed")
         & flight_data["arrival_delayed_15"].notna()
     )
-
-    flight_data.loc[
-        completed_arrival_rows,
-        "arrival_on_time",
-    ] = (
-        flight_data.loc[
-            completed_arrival_rows,
-            "arrival_delayed_15",
-        ]
-        == 0
+    flight_data.loc[completed_arrival_rows, "arrival_on_time"] = (
+        flight_data.loc[completed_arrival_rows, "arrival_delayed_15"] == 0
     )
 
-    # Sort the dataset into a stable, reproducible order
+    _raise_if_missing_warehouse_values(flight_data)
+
     flight_data = flight_data.sort_values(
         by=[
             "flight_date",
@@ -406,79 +251,29 @@ def clean_flight_dataframe(
         ],
         kind="stable",
     ).reset_index(drop=True)
-
-    # Attach here (on the object actually being returned) rather than
-    # trusting .attrs to survive every operation above.
     flight_data.attrs["exact_duplicate_count"] = exact_duplicate_count
-
     return flight_data
 
 
 def main() -> None:
-    """Clean the raw BTS flight data and save it as Parquet."""
-
     if not RAW_DATA_FILE.exists():
-        raise FileNotFoundError(
-            f"Raw data file was not found:\n{RAW_DATA_FILE}"
-        )
+        raise FileNotFoundError(f"Raw data file was not found:\n{RAW_DATA_FILE}")
 
-    PROCESSED_DATA_DIRECTORY.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    INTERIM_DATA_DIRECTORY.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    PROCESSED_DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    INTERIM_DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
     print("=" * 70)
     print("BTS FLIGHT DATA CLEANING")
     print("=" * 70)
     print(f"Reading raw data: {RAW_DATA_FILE}")
-    print("This may take approximately 30 to 90 seconds.")
 
-    raw_flight_data = pd.read_csv(
-        RAW_DATA_FILE,
-        low_memory=False,
-    )
-
+    raw_flight_data = pd.read_csv(RAW_DATA_FILE, low_memory=False)
     original_row_count = len(raw_flight_data)
     original_column_count = len(raw_flight_data.columns)
 
     flight_data = clean_flight_dataframe(raw_flight_data)
-
-    # Computed inside clean_flight_dataframe(), on the fully prepared
-    # frame right before drop_duplicates() -- matches the original
-    # (pre-refactor) semantics. Do not recompute this from
-    # raw_flight_data here: the raw frame is untyped/unrenamed, so a
-    # duplicate count taken directly from it is not the same number.
     exact_duplicate_count = flight_data.attrs["exact_duplicate_count"]
 
-    cleaned_row_count = len(flight_data)
-    cleaned_column_count = len(flight_data.columns)
-
-    completed_flight_count = int(
-        (flight_data["flight_status"] == "Completed").sum()
-    )
-
-    cancelled_flight_count = int(
-        (flight_data["flight_status"] == "Cancelled").sum()
-    )
-
-    diverted_flight_count = int(
-        (flight_data["flight_status"] == "Diverted").sum()
-    )
-
-    on_time_arrival_count = int(
-        (flight_data["arrival_on_time"] == True).sum()
-    )
-
-    delayed_arrival_count = int(
-        (flight_data["arrival_on_time"] == False).sum()
-    )
-
-    # Save using Parquet for smaller size and preserved data types
     flight_data.to_parquet(
         CLEAN_DATA_FILE,
         index=False,
@@ -486,11 +281,12 @@ def main() -> None:
         compression="snappy",
     )
 
-    output_file_size_megabytes = (
-        CLEAN_DATA_FILE.stat().st_size
-        / 1024
-        / 1024
-    )
+    output_file_size_megabytes = CLEAN_DATA_FILE.stat().st_size / 1024 / 1024
+    completed_flight_count = int((flight_data["flight_status"] == "Completed").sum())
+    cancelled_flight_count = int((flight_data["flight_status"] == "Cancelled").sum())
+    diverted_flight_count = int((flight_data["flight_status"] == "Diverted").sum())
+    on_time_arrival_count = int((flight_data["arrival_on_time"] == True).sum())
+    delayed_arrival_count = int((flight_data["arrival_on_time"] == False).sum())
 
     summary_lines = [
         "BTS FLIGHT DATA CLEANING SUMMARY",
@@ -501,10 +297,10 @@ def main() -> None:
         "ROW AND COLUMN COUNTS",
         "-" * 70,
         f"Original rows: {original_row_count:,}",
-        f"Cleaned rows: {cleaned_row_count:,}",
+        f"Cleaned rows: {len(flight_data):,}",
         f"Exact duplicate rows removed: {exact_duplicate_count:,}",
         f"Original columns: {original_column_count}",
-        f"Cleaned columns: {cleaned_column_count}",
+        f"Cleaned columns: {len(flight_data.columns)}",
         "",
         "FLIGHT STATUS",
         "-" * 70,
@@ -514,33 +310,13 @@ def main() -> None:
         f"On-time completed arrivals: {on_time_arrival_count:,}",
         f"Delayed completed arrivals: {delayed_arrival_count:,}",
         "",
-        "TRANSFORMATIONS",
-        "-" * 70,
-        "Column names converted to descriptive snake_case.",
-        "Flight date converted to datetime.",
-        "Text values trimmed and blank strings converted to null.",
-        "Numeric fields converted to nullable numeric types.",
-        "Exact duplicate rows removed.",
-        "Missing reported delay-cause minutes converted to zero.",
-        "Original delay-cause availability retained in delay_cause_reported.",
-        "Route, weekend, hour, status and on-time fields created.",
-        "",
         "OUTPUT",
         "-" * 70,
-        (
-            "Parquet file size: "
-            f"{output_file_size_megabytes:.2f} MB"
-        ),
+        f"Parquet file size: {output_file_size_megabytes:.2f} MB",
     ]
 
-    CLEANING_SUMMARY_FILE.write_text(
-        "\n".join(summary_lines),
-        encoding="utf-8",
-    )
-
-    print()
+    CLEANING_SUMMARY_FILE.write_text("\n".join(summary_lines), encoding="utf-8")
     print("\n".join(summary_lines))
-    print()
     print(f"Clean data saved to: {CLEAN_DATA_FILE}")
     print(f"Summary saved to: {CLEANING_SUMMARY_FILE}")
     print("=" * 70)

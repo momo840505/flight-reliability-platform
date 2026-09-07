@@ -1,39 +1,16 @@
 import argparse
-import os
 from pathlib import Path
 
 import pandas as pd
-import psycopg
-from dotenv import load_dotenv
 
+from src.contracts import WAREHOUSE_REQUIRED_CLEAN_COLUMNS
+from src.database import get_database_settings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
-ENVIRONMENT_FILE = PROJECT_ROOT / ".env"
-
-CLEAN_DATA_FILE = (
-    PROJECT_ROOT
-    / "data"
-    / "processed"
-    / "flights_2024_01_clean.parquet"
-)
-
-INTERIM_DIRECTORY = (
-    PROJECT_ROOT
-    / "data"
-    / "interim"
-)
-
-FACT_LOAD_FILE = (
-    INTERIM_DIRECTORY
-    / "fact_flight_load.csv"
-)
-
-LOAD_SUMMARY_FILE = (
-    INTERIM_DIRECTORY
-    / "warehouse_load_summary.txt"
-)
-
+DEFAULT_CLEAN_DATA_FILE = PROJECT_ROOT / "data" / "processed" / "flights_2024_01_clean.parquet"
+INTERIM_DIRECTORY = PROJECT_ROOT / "data" / "interim"
+FACT_LOAD_FILE = INTERIM_DIRECTORY / "fact_flight_load.csv"
+LOAD_SUMMARY_FILE = INTERIM_DIRECTORY / "warehouse_load_summary.txt"
 
 FACT_COLUMNS = [
     "date_key",
@@ -81,111 +58,50 @@ FACT_COLUMNS = [
 
 
 def parse_arguments() -> argparse.Namespace:
-    """Read command-line options."""
-
-    argument_parser = argparse.ArgumentParser(
-        description=(
-            "Load the cleaned BTS flight dataset "
-            "into the PostgreSQL data warehouse."
-        )
+    parser = argparse.ArgumentParser(description="Load cleaned flight data into PostgreSQL.")
+    parser.add_argument(
+        "--input",
+        type=Path,
+        default=DEFAULT_CLEAN_DATA_FILE,
+        help="Clean Parquet file to load.",
     )
-
-    argument_parser.add_argument(
+    parser.add_argument(
         "--replace",
         action="store_true",
-        help=(
-            "Delete existing warehouse data before loading. "
-            "Use this for a complete reload."
-        ),
+        help="Replace existing warehouse data before loading.",
     )
+    return parser.parse_args()
 
-    return argument_parser.parse_args()
 
+def validate_load_input(flight_data: pd.DataFrame) -> None:
+    missing_columns = sorted(set(WAREHOUSE_REQUIRED_CLEAN_COLUMNS) - set(flight_data.columns))
+    if missing_columns:
+        raise ValueError(f"Clean data is missing warehouse columns: {missing_columns}")
 
-def get_database_settings() -> dict:
-    """Load PostgreSQL settings from the local .env file."""
-
-    if not ENVIRONMENT_FILE.exists():
-        raise FileNotFoundError(
-            f"Environment file was not found:\n{ENVIRONMENT_FILE}"
-        )
-
-    load_dotenv(ENVIRONMENT_FILE)
-
-    database_settings = {
-        "host": os.getenv("POSTGRES_HOST"),
-        "port": os.getenv("POSTGRES_PORT"),
-        "dbname": os.getenv("POSTGRES_DATABASE"),
-        "user": os.getenv("POSTGRES_USER"),
-        "password": os.getenv("POSTGRES_PASSWORD"),
-        "connect_timeout": 10,
+    missing_required = {
+        column: int(flight_data[column].isna().sum())
+        for column in WAREHOUSE_REQUIRED_CLEAN_COLUMNS
+        if flight_data[column].isna().any()
     }
-
-    missing_settings = [
-        setting_name
-        for setting_name, setting_value
-        in database_settings.items()
-        if setting_name != "connect_timeout"
-        and not setting_value
-    ]
-
-    if missing_settings:
-        raise ValueError(
-            f"Missing database settings: {missing_settings}"
+    if missing_required:
+        details = ", ".join(
+            f"{column}={count:,}" for column, count in sorted(missing_required.items())
         )
+        raise ValueError(f"Warehouse load stopped because required values are missing: {details}")
 
-    return database_settings
 
-
-def create_date_dimension(
-    flight_data: pd.DataFrame,
-) -> pd.DataFrame:
-    """Create one row for each calendar date."""
-
-    date_dimension = (
-        flight_data[
-            [
-                "flight_date",
-                "year",
-                "quarter",
-                "month",
-                "day_of_month",
-                "day_of_week",
-                "is_weekend",
-            ]
-        ]
-        .drop_duplicates()
-        .copy()
-    )
-
-    date_dimension["date_key"] = (
-        date_dimension["flight_date"]
-        .dt.strftime("%Y%m%d")
-        .astype(int)
-    )
-
-    date_dimension["month_name"] = (
-        date_dimension["flight_date"]
-        .dt.month_name()
-    )
-
-    date_dimension["day_name"] = (
-        date_dimension["flight_date"]
-        .dt.day_name()
-    )
-
-    date_dimension = date_dimension.rename(
-        columns={
-            "flight_date": "full_date",
-            "year": "year_number",
-            "quarter": "quarter_number",
-            "month": "month_number",
-            "day_of_month": "day_of_month",
-            "day_of_week": "day_of_week_number",
-        }
-    )
-
-    date_dimension = date_dimension[
+def create_date_dimension(flight_data: pd.DataFrame) -> pd.DataFrame:
+    dates = pd.DataFrame({"full_date": flight_data["flight_date"].drop_duplicates()})
+    dates["date_key"] = dates["full_date"].dt.strftime("%Y%m%d").astype(int)
+    dates["year_number"] = dates["full_date"].dt.year
+    dates["quarter_number"] = dates["full_date"].dt.quarter
+    dates["month_number"] = dates["full_date"].dt.month
+    dates["month_name"] = dates["full_date"].dt.month_name()
+    dates["day_of_month"] = dates["full_date"].dt.day
+    dates["day_of_week_number"] = dates["full_date"].dt.dayofweek + 1
+    dates["day_name"] = dates["full_date"].dt.day_name()
+    dates["is_weekend"] = dates["full_date"].dt.dayofweek >= 5
+    return dates[
         [
             "date_key",
             "full_date",
@@ -200,55 +116,25 @@ def create_date_dimension(
         ]
     ].sort_values("date_key")
 
-    return date_dimension
 
-
-def create_airline_dimension(
-    flight_data: pd.DataFrame,
-) -> pd.DataFrame:
-    """Create one row for each airline."""
-
-    airline_dimension = (
-        flight_data[
-            [
-                "reporting_airline_id",
-                "reporting_airline_code",
-            ]
-        ]
+def create_airline_dimension(flight_data: pd.DataFrame) -> pd.DataFrame:
+    dimension = (
+        flight_data[["reporting_airline_id", "reporting_airline_code"]]
         .drop_duplicates()
         .sort_values("reporting_airline_id")
         .reset_index(drop=True)
     )
-
-    airline_versions_per_id = (
-        airline_dimension
-        .groupby("reporting_airline_id")
-        .size()
-    )
-
-    conflicting_airline_ids = (
-        airline_versions_per_id[
-            airline_versions_per_id > 1
-        ]
-        .index
-        .tolist()
-    )
-
-    if conflicting_airline_ids:
-        raise ValueError(
-            "Conflicting airline attributes were found for IDs: "
-            f"{conflicting_airline_ids}"
-        )
-
-    return airline_dimension
+    conflicts = dimension.groupby("reporting_airline_id").size()
+    conflicts = conflicts[conflicts > 1].index.tolist()
+    if conflicts:
+        raise ValueError(f"Conflicting airline attributes were found for IDs: {conflicts}")
+    if dimension["reporting_airline_code"].isna().any():
+        raise ValueError("Airline dimension contains missing airline codes.")
+    return dimension
 
 
-def create_airport_dimension(
-    flight_data: pd.DataFrame,
-) -> pd.DataFrame:
-    """Combine origin and destination airports into one dimension."""
-
-    origin_airports = flight_data[
+def create_airport_dimension(flight_data: pd.DataFrame) -> pd.DataFrame:
+    origin = flight_data[
         [
             "origin_airport_id",
             "origin_airport_code",
@@ -265,8 +151,7 @@ def create_airport_dimension(
             "origin_state_name": "state_name",
         }
     )
-
-    destination_airports = flight_data[
+    destination = flight_data[
         [
             "destination_airport_id",
             "destination_airport_code",
@@ -283,68 +168,28 @@ def create_airport_dimension(
             "destination_state_name": "state_name",
         }
     )
-
-    airport_dimension = (
-        pd.concat(
-            [
-                origin_airports,
-                destination_airports,
-            ],
-            ignore_index=True,
-        )
+    dimension = (
+        pd.concat([origin, destination], ignore_index=True)
         .drop_duplicates()
         .sort_values("airport_id")
         .reset_index(drop=True)
     )
-
-    airport_versions_per_id = (
-        airport_dimension
-        .groupby("airport_id")
-        .size()
-    )
-
-    conflicting_airport_ids = (
-        airport_versions_per_id[
-            airport_versions_per_id > 1
-        ]
-        .index
-        .tolist()
-    )
-
-    if conflicting_airport_ids:
-        raise ValueError(
-            "Conflicting airport attributes were found for IDs: "
-            f"{conflicting_airport_ids[:20]}"
-        )
-
-    return airport_dimension
+    if dimension[["airport_id", "airport_code"]].isna().any(axis=None):
+        raise ValueError("Airport dimension contains missing IDs or airport codes.")
+    conflicts = dimension.groupby("airport_id").size()
+    conflicts = conflicts[conflicts > 1].index.tolist()
+    if conflicts:
+        raise ValueError(f"Conflicting airport attributes were found for IDs: {conflicts[:20]}")
+    return dimension
 
 
-def load_date_dimension(
-    cursor: psycopg.Cursor,
-    date_dimension: pd.DataFrame,
-) -> None:
-    """Insert or update the date dimension."""
-
-    insert_query = """
+def load_date_dimension(cursor, date_dimension):
+    query = """
         INSERT INTO warehouse.dim_date (
-            date_key,
-            full_date,
-            year_number,
-            quarter_number,
-            month_number,
-            month_name,
-            day_of_month,
-            day_of_week_number,
-            day_name,
-            is_weekend
-        )
-        VALUES (
-            %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s
-        )
-        ON CONFLICT (date_key)
-        DO UPDATE SET
+            date_key, full_date, year_number, quarter_number, month_number,
+            month_name, day_of_month, day_of_week_number, day_name, is_weekend
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (date_key) DO UPDATE SET
             full_date = EXCLUDED.full_date,
             year_number = EXCLUDED.year_number,
             quarter_number = EXCLUDED.quarter_number,
@@ -355,8 +200,7 @@ def load_date_dimension(
             day_name = EXCLUDED.day_name,
             is_weekend = EXCLUDED.is_weekend;
     """
-
-    dimension_rows = [
+    rows = [
         (
             int(row.date_key),
             row.full_date.date(),
@@ -371,328 +215,121 @@ def load_date_dimension(
         )
         for row in date_dimension.itertuples(index=False)
     ]
-
-    cursor.executemany(
-        insert_query,
-        dimension_rows,
-    )
+    cursor.executemany(query, rows)
 
 
-def load_airline_dimension(
-    cursor: psycopg.Cursor,
-    airline_dimension: pd.DataFrame,
-) -> None:
-    """Insert or update the airline dimension."""
-
-    insert_query = """
-        INSERT INTO warehouse.dim_airline (
-            reporting_airline_id,
-            reporting_airline_code
-        )
+def load_airline_dimension(cursor, airline_dimension):
+    query = """
+        INSERT INTO warehouse.dim_airline (reporting_airline_id, reporting_airline_code)
         VALUES (%s, %s)
-        ON CONFLICT (reporting_airline_id)
-        DO UPDATE SET
-            reporting_airline_code =
-                EXCLUDED.reporting_airline_code;
+        ON CONFLICT (reporting_airline_id) DO UPDATE SET
+            reporting_airline_code = EXCLUDED.reporting_airline_code;
     """
-
-    dimension_rows = [
-        (
-            int(row.reporting_airline_id),
-            str(row.reporting_airline_code),
-        )
-        for row in airline_dimension.itertuples(index=False)
-    ]
-
     cursor.executemany(
-        insert_query,
-        dimension_rows,
+        query,
+        [
+            (int(row.reporting_airline_id), str(row.reporting_airline_code))
+            for row in airline_dimension.itertuples(index=False)
+        ],
     )
 
 
-def load_airport_dimension(
-    cursor: psycopg.Cursor,
-    airport_dimension: pd.DataFrame,
-) -> None:
-    """Insert or update the airport dimension."""
-
-    insert_query = """
+def load_airport_dimension(cursor, airport_dimension):
+    query = """
         INSERT INTO warehouse.dim_airport (
-            airport_id,
-            airport_code,
-            city_name,
-            state_code,
-            state_name
-        )
-        VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (airport_id)
-        DO UPDATE SET
+            airport_id, airport_code, city_name, state_code, state_name
+        ) VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (airport_id) DO UPDATE SET
             airport_code = EXCLUDED.airport_code,
             city_name = EXCLUDED.city_name,
             state_code = EXCLUDED.state_code,
             state_name = EXCLUDED.state_name;
     """
-
-    dimension_rows = []
-
+    rows = []
     for row in airport_dimension.itertuples(index=False):
-        dimension_rows.append(
+        rows.append(
             (
                 int(row.airport_id),
                 str(row.airport_code),
-                None if pd.isna(row.city_name)
-                else str(row.city_name),
-                None if pd.isna(row.state_code)
-                else str(row.state_code),
-                None if pd.isna(row.state_name)
-                else str(row.state_name),
+                None if pd.isna(row.city_name) else str(row.city_name),
+                None if pd.isna(row.state_code) else str(row.state_code),
+                None if pd.isna(row.state_name) else str(row.state_name),
             )
         )
-
-    cursor.executemany(
-        insert_query,
-        dimension_rows,
-    )
+    cursor.executemany(query, rows)
 
 
-def get_airline_key_mapping(
-    cursor: psycopg.Cursor,
-) -> dict:
-    """Return the natural airline ID to warehouse key mapping."""
-
-    cursor.execute(
-        """
-        SELECT
-            reporting_airline_id,
-            airline_key
-        FROM warehouse.dim_airline;
-        """
-    )
-
-    return {
-        reporting_airline_id: airline_key
-        for reporting_airline_id, airline_key
-        in cursor.fetchall()
-    }
+def get_airline_key_mapping(cursor):
+    cursor.execute("SELECT reporting_airline_id, airline_key FROM warehouse.dim_airline;")
+    return dict(cursor.fetchall())
 
 
-def get_airport_key_mapping(
-    cursor: psycopg.Cursor,
-) -> dict:
-    """Return the natural airport ID to warehouse key mapping."""
-
-    cursor.execute(
-        """
-        SELECT
-            airport_id,
-            airport_key
-        FROM warehouse.dim_airport;
-        """
-    )
-
-    return {
-        airport_id: airport_key
-        for airport_id, airport_key
-        in cursor.fetchall()
-    }
+def get_airport_key_mapping(cursor):
+    cursor.execute("SELECT airport_id, airport_key FROM warehouse.dim_airport;")
+    return dict(cursor.fetchall())
 
 
-def create_fact_load_data(
-    flight_data: pd.DataFrame,
-    airline_key_mapping: dict,
-    airport_key_mapping: dict,
-) -> pd.DataFrame:
-    """Create fact-table rows with dimension surrogate keys."""
-
+def create_fact_load_data(flight_data, airline_key_mapping, airport_key_mapping):
     fact_data = flight_data.copy()
+    fact_data["date_key"] = fact_data["flight_date"].dt.strftime("%Y%m%d").astype(int)
+    fact_data["airline_key"] = fact_data["reporting_airline_id"].map(airline_key_mapping)
+    fact_data["origin_airport_key"] = fact_data["origin_airport_id"].map(airport_key_mapping)
+    fact_data["destination_airport_key"] = fact_data["destination_airport_id"].map(airport_key_mapping)
 
-    fact_data["date_key"] = (
-        fact_data["flight_date"]
-        .dt.strftime("%Y%m%d")
-        .astype(int)
-    )
+    if fact_data[["airline_key", "origin_airport_key", "destination_airport_key"]].isna().any(axis=None):
+        raise ValueError("One or more fact rows could not be matched to warehouse dimensions.")
 
-    fact_data["airline_key"] = (
-        fact_data["reporting_airline_id"]
-        .map(airline_key_mapping)
-    )
-
-    fact_data["origin_airport_key"] = (
-        fact_data["origin_airport_id"]
-        .map(airport_key_mapping)
-    )
-
-    fact_data["destination_airport_key"] = (
-        fact_data["destination_airport_id"]
-        .map(airport_key_mapping)
-    )
-
-    missing_dimension_key_count = int(
-        fact_data[
-            [
-                "date_key",
-                "airline_key",
-                "origin_airport_key",
-                "destination_airport_key",
-            ]
-        ]
-        .isna()
-        .any(axis=1)
-        .sum()
-    )
-
-    if missing_dimension_key_count > 0:
-        raise ValueError(
-            f"{missing_dimension_key_count:,} fact rows "
-            "could not be matched to dimensions."
-        )
-
-    boolean_columns = [
+    for column in [
         "departure_delayed_15",
         "arrival_delayed_15",
         "arrival_on_time",
         "cancelled",
         "diverted",
         "delay_cause_reported",
-    ]
+    ]:
+        fact_data[column] = fact_data[column].astype("boolean")
 
-    for column_name in boolean_columns:
-        fact_data[column_name] = (
-            fact_data[column_name]
-            .astype("boolean")
-        )
-
-    fact_data = fact_data[FACT_COLUMNS].copy()
-
-    return fact_data
+    return fact_data[FACT_COLUMNS].copy()
 
 
-def copy_fact_data(
-    cursor: psycopg.Cursor,
-    fact_data: pd.DataFrame,
-) -> None:
-    """Use PostgreSQL COPY to load the fact table efficiently."""
-
-    INTERIM_DIRECTORY.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    print(
-        f"Writing temporary load file: {FACT_LOAD_FILE.name}"
-    )
-
-    fact_data.to_csv(
-        FACT_LOAD_FILE,
-        index=False,
-        na_rep="",
-    )
-
-    copy_column_list = ", ".join(FACT_COLUMNS)
-
-    copy_query = f"""
-        COPY warehouse.fact_flight (
-            {copy_column_list}
-        )
-        FROM STDIN
-        WITH (
-            FORMAT CSV,
-            HEADER TRUE,
-            NULL ''
-        );
+def copy_fact_data(cursor, fact_data):
+    INTERIM_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    fact_data.to_csv(FACT_LOAD_FILE, index=False, na_rep="")
+    columns = ", ".join(FACT_COLUMNS)
+    query = f"""
+        COPY warehouse.fact_flight ({columns})
+        FROM STDIN WITH (FORMAT CSV, HEADER TRUE, NULL '');
     """
-
-    print(
-        f"Copying {len(fact_data):,} fact rows "
-        "into PostgreSQL..."
-    )
-
-    with FACT_LOAD_FILE.open("rb") as input_file:
-        with cursor.copy(copy_query) as copy_process:
-            while data_chunk := input_file.read(
-                1024 * 1024
-            ):
-                copy_process.write(data_chunk)
+    try:
+        with FACT_LOAD_FILE.open("rb") as input_file:
+            with cursor.copy(query) as copy_process:
+                while chunk := input_file.read(1024 * 1024):
+                    copy_process.write(chunk)
+    finally:
+        FACT_LOAD_FILE.unlink(missing_ok=True)
 
 
-def main() -> None:
-    """Load dimensions and facts into PostgreSQL."""
+def load_warehouse(flight_data: pd.DataFrame, replace: bool = False) -> dict:
+    import psycopg
 
-    arguments = parse_arguments()
-
-    if not CLEAN_DATA_FILE.exists():
-        raise FileNotFoundError(
-            f"Clean Parquet file was not found:\n"
-            f"{CLEAN_DATA_FILE}"
-        )
-
-    database_settings = get_database_settings()
-
-    print("=" * 70)
-    print("POSTGRESQL DATA WAREHOUSE LOAD")
-    print("=" * 70)
-    print(f"Reading: {CLEAN_DATA_FILE}")
-
-    flight_data = pd.read_parquet(
-        CLEAN_DATA_FILE
-    )
-
+    validate_load_input(flight_data)
+    settings = get_database_settings(require_env_file=False)
     source_row_count = len(flight_data)
 
-    print(f"Source rows: {source_row_count:,}")
+    date_dimension = create_date_dimension(flight_data)
+    airline_dimension = create_airline_dimension(flight_data)
+    airport_dimension = create_airport_dimension(flight_data)
 
-    date_dimension = create_date_dimension(
-        flight_data
-    )
-
-    airline_dimension = create_airline_dimension(
-        flight_data
-    )
-
-    airport_dimension = create_airport_dimension(
-        flight_data
-    )
-
-    print(
-        f"Date dimension rows: {len(date_dimension):,}"
-    )
-    print(
-        f"Airline dimension rows: {len(airline_dimension):,}"
-    )
-    print(
-        f"Airport dimension rows: {len(airport_dimension):,}"
-    )
-
-    with psycopg.connect(
-        **database_settings
-    ) as connection:
-
+    with psycopg.connect(**settings) as connection:
         with connection.cursor() as cursor:
-
-            cursor.execute(
-                """
-                SELECT COUNT(*)
-                FROM warehouse.fact_flight;
-                """
-            )
-
-            existing_fact_count = (
-                cursor.fetchone()[0]
-            )
-
-            if existing_fact_count > 0:
-                if not arguments.replace:
+            cursor.execute("SELECT COUNT(*) FROM warehouse.fact_flight;")
+            existing_fact_count = cursor.fetchone()[0]
+            if existing_fact_count:
+                if not replace:
                     raise RuntimeError(
-                        "The fact table already contains "
-                        f"{existing_fact_count:,} rows. "
-                        "Run again with --replace to perform "
-                        "a complete reload."
+                        f"The fact table already contains {existing_fact_count:,} rows. "
+                        "Use --replace for a full reload."
                     )
-
-                print(
-                    "Existing warehouse data will be replaced."
-                )
-
                 cursor.execute(
                     """
                     TRUNCATE TABLE
@@ -704,136 +341,67 @@ def main() -> None:
                     """
                 )
 
-            print("Loading date dimension...")
-            load_date_dimension(
-                cursor,
-                date_dimension,
-            )
-
-            print("Loading airline dimension...")
-            load_airline_dimension(
-                cursor,
-                airline_dimension,
-            )
-
-            print("Loading airport dimension...")
-            load_airport_dimension(
-                cursor,
-                airport_dimension,
-            )
-
-            airline_key_mapping = (
-                get_airline_key_mapping(cursor)
-            )
-
-            airport_key_mapping = (
-                get_airport_key_mapping(cursor)
-            )
+            load_date_dimension(cursor, date_dimension)
+            load_airline_dimension(cursor, airline_dimension)
+            load_airport_dimension(cursor, airport_dimension)
 
             fact_data = create_fact_load_data(
                 flight_data,
-                airline_key_mapping,
-                airport_key_mapping,
+                get_airline_key_mapping(cursor),
+                get_airport_key_mapping(cursor),
             )
+            copy_fact_data(cursor, fact_data)
 
-            copy_fact_data(
-                cursor,
-                fact_data,
-            )
+            counts = {}
+            for name, table in {
+                "dim_date": "warehouse.dim_date",
+                "dim_airline": "warehouse.dim_airline",
+                "dim_airport": "warehouse.dim_airport",
+                "fact_flight": "warehouse.fact_flight",
+            }.items():
+                cursor.execute(f"SELECT COUNT(*) FROM {table};")
+                counts[name] = cursor.fetchone()[0]
 
-            cursor.execute(
-                """
-                ANALYZE warehouse.dim_date;
-                ANALYZE warehouse.dim_airline;
-                ANALYZE warehouse.dim_airport;
-                ANALYZE warehouse.fact_flight;
-                """
-            )
-
-            cursor.execute(
-                """
-                SELECT COUNT(*)
-                FROM warehouse.dim_date;
-                """
-            )
-            loaded_date_count = cursor.fetchone()[0]
-
-            cursor.execute(
-                """
-                SELECT COUNT(*)
-                FROM warehouse.dim_airline;
-                """
-            )
-            loaded_airline_count = cursor.fetchone()[0]
-
-            cursor.execute(
-                """
-                SELECT COUNT(*)
-                FROM warehouse.dim_airport;
-                """
-            )
-            loaded_airport_count = cursor.fetchone()[0]
-
-            cursor.execute(
-                """
-                SELECT COUNT(*)
-                FROM warehouse.fact_flight;
-                """
-            )
-            loaded_fact_count = cursor.fetchone()[0]
-
-            # This check has to run in here, before the `with connection`
-            # block below exits and commits. It used to sit after both
-            # `with` blocks closed, which meant the mismatch was only ever
-            # detected *after* everything was already committed -- raising
-            # RuntimeError at that point couldn't undo anything. Raising it
-            # from inside the transaction lets psycopg's connection context
-            # manager roll the whole load back instead.
-            if loaded_fact_count != source_row_count:
+            if counts["fact_flight"] != source_row_count:
                 raise RuntimeError(
                     "Fact row count does not match source data. "
-                    f"Source: {source_row_count:,}, "
-                    f"Warehouse: {loaded_fact_count:,}. "
-                    "Rolling back -- nothing was committed."
+                    f"Source: {source_row_count:,}, warehouse: {counts['fact_flight']:,}."
                 )
+
+            cursor.execute("ANALYZE warehouse.fact_flight;")
+
+    return counts
+
+
+def main() -> None:
+    arguments = parse_arguments()
+    input_file = arguments.input.resolve()
+    if not input_file.exists():
+        raise FileNotFoundError(f"Clean Parquet file was not found:\n{input_file}")
+
+    flight_data = pd.read_parquet(input_file)
+    counts = load_warehouse(flight_data, replace=arguments.replace)
 
     summary_lines = [
         "POSTGRESQL DATA WAREHOUSE LOAD SUMMARY",
         "=" * 70,
-        f"Source file: {CLEAN_DATA_FILE.name}",
-        f"Source rows: {source_row_count:,}",
+        f"Source file: {input_file.name}",
+        f"Source rows: {len(flight_data):,}",
         "",
         "LOADED TABLES",
         "-" * 70,
-        f"warehouse.dim_date: {loaded_date_count:,}",
-        (
-            "warehouse.dim_airline: "
-            f"{loaded_airline_count:,}"
-        ),
-        (
-            "warehouse.dim_airport: "
-            f"{loaded_airport_count:,}"
-        ),
-        (
-            "warehouse.fact_flight: "
-            f"{loaded_fact_count:,}"
-        ),
+        f"warehouse.dim_date: {counts['dim_date']:,}",
+        f"warehouse.dim_airline: {counts['dim_airline']:,}",
+        f"warehouse.dim_airport: {counts['dim_airport']:,}",
+        f"warehouse.fact_flight: {counts['fact_flight']:,}",
         "",
         "STATUS",
         "-" * 70,
         "Warehouse load completed successfully.",
     ]
-
-    LOAD_SUMMARY_FILE.write_text(
-        "\n".join(summary_lines),
-        encoding="utf-8",
-    )
-
-    print()
+    INTERIM_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    LOAD_SUMMARY_FILE.write_text("\n".join(summary_lines), encoding="utf-8")
     print("\n".join(summary_lines))
-    print()
-    print(f"Summary saved to: {LOAD_SUMMARY_FILE}")
-    print("=" * 70)
 
 
 if __name__ == "__main__":

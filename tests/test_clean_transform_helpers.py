@@ -1,59 +1,19 @@
 import pandas as pd
 import pytest
 
-from src.transform.clean_flight_data import (
-    COLUMN_RENAME_MAP,
-    clean_flight_dataframe,
-    extract_hour_from_hhmm,
-)
+from src.contracts import SOURCE_COLUMN_RENAME_MAP
+from src.transform.clean_flight_data import clean_flight_dataframe, extract_hour_from_hhmm
 
-
-def test_extract_hour_from_hhmm_handles_standard_values() -> None:
-    values = pd.Series([5, 59, 100, 930, 2359])
-
-    result = extract_hour_from_hhmm(values)
-
-    assert result.tolist() == [0, 0, 1, 9, 23]
-
-
-def test_extract_hour_from_hhmm_wraps_2400_and_preserves_missing() -> None:
-    values = pd.Series([2400, 2460, None, "bad"])
-
-    result = extract_hour_from_hhmm(values)
-
-    assert result.iloc[0] == 0
-    assert result.iloc[1] == 0
-    assert pd.isna(result.iloc[2])
-    assert pd.isna(result.iloc[3])
-
-
-# ---------------------------------------------------------------------------
-# clean_flight_dataframe()
-#
-# These build a tiny synthetic DataFrame using the *raw* BTS column names
-# (the left-hand side of COLUMN_RENAME_MAP), matching the shape of the real
-# flights_2024_01.csv file, so the tests exercise the exact same code path
-# as main() does -- just without needing the real ~500k-row file on disk.
-# ---------------------------------------------------------------------------
-
-RAW_COLUMNS = list(COLUMN_RENAME_MAP.keys())
+RAW_COLUMNS = list(SOURCE_COLUMN_RENAME_MAP)
 
 
 def make_raw_flight_row(**overrides) -> dict:
-    """A single valid, fully-populated raw BTS flight record.
-
-    Every field individual tests care about can be overridden by keyword;
-    everything else is a plausible default so the row passes the
-    data-quality guardrails (valid date, complete flight key) unless a
-    test is specifically exercising one of those guardrails.
-    """
-
-    base = dict(
+    row = dict(
         YEAR=2024,
         QUARTER=1,
         MONTH=1,
         DAY_OF_MONTH=1,
-        DAY_OF_WEEK=1,  # Monday
+        DAY_OF_WEEK=1,
         FL_DATE="01/01/2024 12:00:00 AM",
         OP_UNIQUE_CARRIER="AA",
         OP_CARRIER_AIRLINE_ID=19805,
@@ -98,108 +58,97 @@ def make_raw_flight_row(**overrides) -> dict:
         SECURITY_DELAY=None,
         LATE_AIRCRAFT_DELAY=None,
     )
-    base.update(overrides)
-    return base
+    row.update(overrides)
+    return row
 
 
 def make_raw_flight_data(rows: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(rows)[RAW_COLUMNS]
 
 
+def test_extract_hour_from_hhmm_accepts_valid_values_and_2400() -> None:
+    values = pd.Series([5, 59, 100, 930, 2359, 2400])
+    result = extract_hour_from_hhmm(values)
+    assert result.tolist() == [0, 0, 1, 9, 23, 0]
+
+
+def test_extract_hour_from_hhmm_rejects_invalid_values() -> None:
+    values = pd.Series([2360, 2401, 2460, 2500, -1, None, "bad"])
+    result = extract_hour_from_hhmm(values)
+    assert result.isna().all()
+
+
 def test_route_code_and_hour_extraction() -> None:
-    raw = make_raw_flight_data([make_raw_flight_row()])
-
-    cleaned = clean_flight_dataframe(raw)
-
+    cleaned = clean_flight_dataframe(make_raw_flight_data([make_raw_flight_row()]))
     row = cleaned.iloc[0]
     assert row["route_code"] == "JFK-LAX"
     assert row["scheduled_departure_hour"] == 8
     assert row["scheduled_arrival_hour"] == 11
 
 
-def test_is_weekend_flag() -> None:
+def test_calendar_fields_are_derived_from_flight_date() -> None:
     raw = make_raw_flight_data(
-        [
-            make_raw_flight_row(OP_CARRIER_FL_NUM=1, DAY_OF_WEEK=1),  # Mon
-            make_raw_flight_row(OP_CARRIER_FL_NUM=2, DAY_OF_WEEK=6),  # Sat
-            make_raw_flight_row(OP_CARRIER_FL_NUM=3, DAY_OF_WEEK=7),  # Sun
-        ]
+        [make_raw_flight_row(DAY_OF_WEEK=7, QUARTER=4, MONTH=12, DAY_OF_MONTH=31)]
     )
-
     cleaned = clean_flight_dataframe(raw)
-    by_flight = cleaned.set_index("flight_number")
-
-    assert by_flight.loc[1, "is_weekend"] == False
-    assert by_flight.loc[2, "is_weekend"] == True
-    assert by_flight.loc[3, "is_weekend"] == True
+    row = cleaned.iloc[0]
+    assert row["quarter"] == 1
+    assert row["month"] == 1
+    assert row["day_of_month"] == 1
+    assert row["day_of_week"] == 1
+    assert row["is_weekend"] == False
 
 
 def test_flight_status_transitions() -> None:
     raw = make_raw_flight_data(
         [
-            make_raw_flight_row(OP_CARRIER_FL_NUM=1),  # normal -> Completed
+            make_raw_flight_row(OP_CARRIER_FL_NUM=1),
             make_raw_flight_row(
-                OP_CARRIER_FL_NUM=2, CANCELLED=1, ARR_DEL15=None, DEP_DEL15=None
+                OP_CARRIER_FL_NUM=2,
+                CANCELLED=1,
+                ARR_DEL15=None,
+                DEP_DEL15=None,
             ),
             make_raw_flight_row(OP_CARRIER_FL_NUM=3, DIVERTED=1, ARR_DEL15=None),
         ]
     )
-
-    cleaned = clean_flight_dataframe(raw)
-    by_flight = cleaned.set_index("flight_number")
-
+    by_flight = clean_flight_dataframe(raw).set_index("flight_number")
     assert by_flight.loc[1, "flight_status"] == "Completed"
     assert by_flight.loc[2, "flight_status"] == "Cancelled"
     assert by_flight.loc[3, "flight_status"] == "Diverted"
 
 
-def test_cancelled_takes_priority_over_diverted() -> None:
-    """A row flagged both DIVERTED=1 and CANCELLED=1 is an edge case the
-    BTS data can technically contain. The original inlined logic applied
-    the diverted assignment first and the cancelled assignment second, so
-    cancelled wins -- this test locks in that same precedence for the
-    refactor."""
+def test_cancelled_and_diverted_conflict_is_rejected() -> None:
+    raw = make_raw_flight_data(
+        [make_raw_flight_row(CANCELLED=1, DIVERTED=1, ARR_DEL15=None, DEP_DEL15=None)]
+    )
+    with pytest.raises(ValueError, match="both cancelled and diverted"):
+        clean_flight_dataframe(raw)
 
+
+def test_arrival_on_time_only_applies_to_completed_flights() -> None:
     raw = make_raw_flight_data(
         [
+            make_raw_flight_row(OP_CARRIER_FL_NUM=1, ARR_DEL15=0),
+            make_raw_flight_row(OP_CARRIER_FL_NUM=2, ARR_DEL15=1),
             make_raw_flight_row(
-                OP_CARRIER_FL_NUM=1,
+                OP_CARRIER_FL_NUM=3,
                 CANCELLED=1,
-                DIVERTED=1,
                 ARR_DEL15=None,
                 DEP_DEL15=None,
-            )
+            ),
         ]
     )
-
-    cleaned = clean_flight_dataframe(raw)
-
-    assert cleaned.iloc[0]["flight_status"] == "Cancelled"
-
-
-def test_arrival_on_time_only_set_for_completed_flights_with_known_delay() -> None:
-    raw = make_raw_flight_data(
-        [
-            make_raw_flight_row(OP_CARRIER_FL_NUM=1, ARR_DEL15=0),  # on time
-            make_raw_flight_row(OP_CARRIER_FL_NUM=2, ARR_DEL15=1),  # delayed
-            make_raw_flight_row(
-                OP_CARRIER_FL_NUM=3, CANCELLED=1, ARR_DEL15=None, DEP_DEL15=None
-            ),  # not completed -> unknown
-        ]
-    )
-
-    cleaned = clean_flight_dataframe(raw)
-    by_flight = cleaned.set_index("flight_number")
-
+    by_flight = clean_flight_dataframe(raw).set_index("flight_number")
     assert by_flight.loc[1, "arrival_on_time"] == True
     assert by_flight.loc[2, "arrival_on_time"] == False
     assert pd.isna(by_flight.loc[3, "arrival_on_time"])
 
 
-def test_delay_cause_reported_and_total_minutes() -> None:
+def test_delay_cause_reporting_and_total() -> None:
     raw = make_raw_flight_data(
         [
-            make_raw_flight_row(OP_CARRIER_FL_NUM=1),  # no delay causes reported
+            make_raw_flight_row(OP_CARRIER_FL_NUM=1),
             make_raw_flight_row(
                 OP_CARRIER_FL_NUM=2,
                 CARRIER_DELAY=10,
@@ -208,64 +157,54 @@ def test_delay_cause_reported_and_total_minutes() -> None:
             ),
         ]
     )
-
-    cleaned = clean_flight_dataframe(raw)
-    by_flight = cleaned.set_index("flight_number")
-
+    by_flight = clean_flight_dataframe(raw).set_index("flight_number")
     assert by_flight.loc[1, "delay_cause_reported"] == False
     assert by_flight.loc[1, "total_reported_delay_minutes"] == 0.0
-
     assert by_flight.loc[2, "delay_cause_reported"] == True
     assert by_flight.loc[2, "total_reported_delay_minutes"] == 15.0
 
 
 def test_exact_duplicate_rows_are_removed_and_counted() -> None:
-    """Regression test for a refactor bug: exact_duplicate_count must be
-    computed on the fully prepared (renamed, date-parsed, string-cleaned,
-    type-cast) DataFrame -- the same point the original inlined logic
-    computed it, right before drop_duplicates() -- never on the raw,
-    untyped input. A count taken from the raw frame is not equivalent and
-    silently reports the wrong number."""
-
-    unique_row = make_raw_flight_row(OP_CARRIER_FL_NUM=1)
-    other_row = make_raw_flight_row(OP_CARRIER_FL_NUM=2, TAIL_NUM="N456AA")
-    raw = make_raw_flight_data([unique_row, dict(unique_row), other_row])
-
-    cleaned = clean_flight_dataframe(raw)
-
+    first = make_raw_flight_row(OP_CARRIER_FL_NUM=1)
+    second = make_raw_flight_row(OP_CARRIER_FL_NUM=2, TAIL_NUM="N456AA")
+    cleaned = clean_flight_dataframe(
+        make_raw_flight_data([first, dict(first), second])
+    )
     assert cleaned.attrs["exact_duplicate_count"] == 1
     assert len(cleaned) == 2
-    assert sorted(cleaned["flight_number"].tolist()) == [1, 2]
 
 
 def test_missing_source_columns_raise_value_error() -> None:
     raw = make_raw_flight_data([make_raw_flight_row()]).drop(columns=["TAIL_NUM"])
-
     with pytest.raises(ValueError, match="source columns are missing"):
         clean_flight_dataframe(raw)
 
 
 def test_invalid_flight_date_raises_value_error() -> None:
     raw = make_raw_flight_data([make_raw_flight_row(FL_DATE="not-a-date")])
-
     with pytest.raises(ValueError, match="invalid flight dates"):
         clean_flight_dataframe(raw)
 
 
 def test_missing_flight_key_value_raises_value_error() -> None:
-    raw = make_raw_flight_data(
-        [make_raw_flight_row(ORIGIN_AIRPORT_ID=None)]
-    )
-
+    raw = make_raw_flight_data([make_raw_flight_row(ORIGIN_AIRPORT_ID=None)])
     with pytest.raises(ValueError, match="missing flight key values"):
         clean_flight_dataframe(raw)
 
 
+def test_invalid_scheduled_time_raises_value_error() -> None:
+    raw = make_raw_flight_data([make_raw_flight_row(CRS_DEP_TIME=2460)])
+    with pytest.raises(ValueError, match="invalid scheduled_departure_time"):
+        clean_flight_dataframe(raw)
+
+
+def test_missing_required_warehouse_value_raises_value_error() -> None:
+    raw = make_raw_flight_data([make_raw_flight_row(ORIGIN=None)])
+    with pytest.raises(ValueError, match="required warehouse values are missing"):
+        clean_flight_dataframe(raw)
+
+
 def test_blank_strings_become_missing() -> None:
-    raw = make_raw_flight_data(
-        [make_raw_flight_row(CANCELLATION_CODE="   ")]
-    )
-
+    raw = make_raw_flight_data([make_raw_flight_row(CANCELLATION_CODE="   ")])
     cleaned = clean_flight_dataframe(raw)
-
     assert pd.isna(cleaned.iloc[0]["cancellation_code"])

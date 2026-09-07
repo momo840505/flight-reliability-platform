@@ -1,65 +1,37 @@
-# Incremental Loading Design
+# Incremental Loading Notes
 
-The current pilot dataset covers January 2024. A production-style extension should support monthly incremental loading.
+The current repo still loads the January 2024 pilot file. The loader can take another Parquet path, but automatic month-by-month ingestion is not implemented yet.
 
-## Goal
-
-Load new monthly BTS flight files without rebuilding the full warehouse every time.
-
-## Proposed Source Layout
-
-```text
-data/raw/
-  flights_2024_01.csv
-  flights_2024_02.csv
-  flights_2024_03.csv
-```
-
-Each file should be treated as an immutable source extract.
-
-## Control Table
-
-Add a pipeline control table:
+If I extend the project, I would add a small load-control table like this:
 
 ```sql
-CREATE TABLE IF NOT EXISTS warehouse.load_batch (
+CREATE TABLE warehouse.load_batch (
     batch_id BIGSERIAL PRIMARY KEY,
-    source_file TEXT NOT NULL UNIQUE,
-    reporting_year INT NOT NULL,
-    reporting_month INT NOT NULL,
+    source_file TEXT NOT NULL,
+    source_sha256 CHAR(64) NOT NULL UNIQUE,
+    reporting_year SMALLINT NOT NULL,
+    reporting_month SMALLINT NOT NULL,
     source_row_count BIGINT NOT NULL,
     loaded_row_count BIGINT NOT NULL,
     load_started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     load_completed_at TIMESTAMPTZ,
-    status TEXT NOT NULL
+    status TEXT NOT NULL,
+    error_message TEXT
 );
 ```
 
-## Incremental Load Steps
+I would use a SHA-256 checksum instead of only the file name. That way the same source file cannot be loaded twice just because it was renamed.
 
-1. Detect raw files not present in `warehouse.load_batch`.
-2. Validate each raw file independently.
-3. Clean and transform each file into monthly Parquet output.
-4. Upsert dimensions such as date, airline, and airport.
-5. Insert facts using a stable source flight key.
-6. Reconcile source row count to inserted fact rows.
-7. Mark the batch as completed only after all checks pass.
+A monthly run would roughly be:
 
-## Idempotency
+1. find a source file that has not been completed before;
+2. validate its columns and month;
+3. clean it and write Parquet;
+4. update the date, airline, and airport dimensions;
+5. insert new flight facts using the scheduled-flight natural key;
+6. compare source and warehouse counts before commit;
+7. mark the batch as complete only after the checks pass.
 
-The loader should be safe to rerun:
+If a load fails, I would keep the failed batch record and error message so I can see what happened and retry it after fixing the problem.
 
-- source files are immutable;
-- duplicate source files are rejected by `source_file`;
-- fact rows use stable natural keys or deterministic surrogate keys;
-- failed batches can be retried after rollback or cleanup.
-
-## Portfolio Value
-
-Incremental loading demonstrates:
-
-- production-style data engineering thinking;
-- batch metadata management;
-- source-to-target reconciliation;
-- idempotent pipeline design;
-- readiness for scheduled monthly refreshes.
+This file is only a design note for now. The batch table and automatic monthly discovery are not part of the current implementation.

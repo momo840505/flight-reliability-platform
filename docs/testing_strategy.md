@@ -1,85 +1,54 @@
-# Testing Strategy
+# Testing Notes
 
-This project uses testing and validation at three levels: Python code health, data quality checks, and warehouse reconciliation.
+I did not start this project with a full test suite. At first I mainly checked the January dataset by running each script and comparing the output. After changing the transformation and loader a few times, I added automated tests for the parts that were easiest to break.
 
-## 1. Python Code Health
+## Unit tests
 
-The GitHub Actions workflow runs on every push and pull request. It installs dependencies, runs tests under `tests/`, and compiles all Python source files under `src/`.
+`tests/test_clean_transform_helpers.py` checks the transformation rules I rely on most:
 
-```bash
+- HHMM parsing, including `2400` and invalid times
+- route creation
+- calendar fields derived from `flight_date`
+- completed, cancelled, and diverted status logic
+- rejection of rows marked both cancelled and diverted
+- arrival on-time logic
+- delay-cause totals
+- duplicate removal
+- required source and warehouse fields
+
+`tests/test_load_helpers.py` checks the loader logic that can be tested without a database:
+
+- date dimension creation
+- airline attribute conflicts
+- airport dimension creation
+- required values before loading
+- surrogate-key mapping for fact rows
+
+## PostgreSQL integration test
+
+The database part needs a real PostgreSQL instance, so GitHub Actions starts PostgreSQL 18 and runs `tests/test_postgres_integration.py`.
+
+The test uses a small fake flight dataset, creates the real warehouse schema and analytics views, runs the loader, and checks that the fact table and reporting views return the expected results.
+
+I skip this test during a normal local `pytest` run because I do not always have the test database running. It is enabled when:
+
+```text
+RUN_POSTGRES_TESTS=1
+```
+
+is set.
+
+## Validation scripts
+
+There are separate validators for the raw CSV, the cleaned Parquet file, and the PostgreSQL warehouse.
+
+One issue I fixed while reviewing the project was that a failed validation could still finish with process exit code `0`. That looks fine when running the file manually, but CI or a scheduled job would treat it as success. Critical failures now raise an exception so the process actually fails.
+
+## Commands I use locally
+
+```powershell
 python -m pytest -q
 python -m compileall -q src
 ```
 
-`tests/test_clean_transform_helpers.py` unit-tests `clean_flight_dataframe()`, the pure
-transformation function in `src/transform/clean_flight_data.py` (see section 3 below for
-what it covers). `src/load/load_warehouse.py` and the `src/validation/*.py` scripts do
-not have unit tests yet.
-
-## 2. Data Validation
-
-The pipeline already includes validation scripts for:
-
-- raw source files;
-- cleaned analytical datasets;
-- warehouse reconciliation.
-
-These checks are part of the portfolio value of the project because they show that the platform is not only a Power BI dashboard. It also validates source-to-target data integrity.
-
-## 3. Unit Tests
-
-`clean_flight_dataframe()` was extracted from the body of `main()` into a standalone,
-DataFrame-in/DataFrame-out pure function specifically so it could be unit-tested without
-the full raw CSV. `tests/test_clean_transform_helpers.py` covers:
-
-- route-code construction;
-- flight-status classification, including the cancelled/diverted precedence rule;
-- on-time arrival flag (only set for completed flights with a known arrival-delay value);
-- scheduled-hour parsing (`extract_hour_from_hhmm`, including the HHMM=2400 edge case);
-- weekend indicator generation;
-- delay-cause reporting and total-minutes calculation;
-- exact-duplicate detection and removal;
-- the data-quality guardrails: missing source columns, invalid flight dates, and
-  incomplete flight-key values all raise `ValueError`.
-
-Not yet covered: `src/load/load_warehouse.py` and the `src/validation/*.py` scripts —
-see the integration and SQL smoke-test sections below.
-
-## 4. Recommended Integration Tests
-
-Add a small fixture dataset with 10-20 synthetic flight rows and test:
-
-- raw validation passes for valid rows;
-- clean transformation preserves row counts;
-- expected dimensional keys are produced;
-- cancelled and diverted flights are classified correctly;
-- source-to-target reconciliation catches mismatched counts.
-
-## 5. SQL Smoke Tests
-
-For the PostgreSQL layer, add smoke tests that verify:
-
-- warehouse schemas can be created from SQL files;
-- required tables and views exist;
-- primary and foreign key constraints are present;
-- analytical views return rows for a small fixture load.
-
-## 6. Local PostgreSQL Test Environment
-
-The included `docker-compose.yml` starts a local PostgreSQL instance:
-
-```bash
-docker compose up -d postgres
-```
-
-Connection settings:
-
-```text
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5433
-POSTGRES_DATABASE=flight_reliability
-POSTGRES_USER=flight_admin
-POSTGRES_PASSWORD=flight_password
-```
-
-This keeps local setup reproducible without requiring a manually installed PostgreSQL server.
+When I want to run the database integration test locally, I start PostgreSQL first and set `RUN_POSTGRES_TESTS=1`.

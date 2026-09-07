@@ -1,39 +1,21 @@
 # Data Source
 
-## Airline On-Time Performance Data
+I used the U.S. Department of Transportation Bureau of Transportation Statistics **Reporting Carrier On-Time Performance (1987-present)** dataset from TranStats.
 
-This project uses the Airline On-Time Performance Data published by the
-U.S. Department of Transportation, Bureau of Transportation Statistics.
+For the current version, I downloaded January 2024 and kept the project to one month while I was building and testing the pipeline. The file still has 547,271 scheduled flight rows, so it was enough to test the cleaning, validation, warehouse load, and Power BI report without making every rerun too slow.
 
-Dataset table:
+Expected local file:
 
-Reporting Carrier On-Time Performance (1987-present)
-
-The dataset contains individual domestic flight records, including:
-
-- Scheduled and actual departure times
-- Scheduled and actual arrival times
-- Departure and arrival delays
-- Flight cancellations
-- Flight diversions
-- Taxi-in and taxi-out times
-- Flight distance
-- Causes of delay
-
-## Pilot Dataset
-
-The first development dataset contains flights from January 2024.
-
-Expected raw file:
-
+```text
 data/raw/flights_2024_01.csv
+```
 
-Raw data files are excluded from Git because of their size.
+The raw CSV is not committed to Git. The extract I used has 48 selected source columns.
 
-## Stable Identifiers
+I kept the BTS IDs below because they are more stable than display names or codes if I later extend the project to more months:
 
-The following identifiers will be used for longitudinal analysis:
+- `OP_CARRIER_AIRLINE_ID`
+- `ORIGIN_AIRPORT_ID`
+- `DEST_AIRPORT_ID`
 
-- DOT_ID_Reporting_Airline
-- OriginAirportID
-- DestAirportID
+If I add more monthly files later, I also want to keep a small source manifest with the download date, query settings, row count, file size, and SHA-256 checksum for each extract.

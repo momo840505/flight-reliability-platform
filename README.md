@@ -1,86 +1,45 @@
 <div align="center">
 
-# ✈️ U.S. Flight Reliability Intelligence Platform
+# U.S. Flight Reliability Platform
 
-### End-to-End Data Engineering · PostgreSQL Warehouse · SQL Analytics · Power BI
+Python ETL · PostgreSQL warehouse · SQL analytics · Power BI
 
-![Python](https://img.shields.io/badge/Python-3.x-3776AB?logo=python&logoColor=white)
+[![Pipeline checks](https://github.com/momo840505/flight-reliability-platform/actions/workflows/tests.yml/badge.svg)](https://github.com/momo840505/flight-reliability-platform/actions/workflows/tests.yml)
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![Power BI](https://img.shields.io/badge/Power%20BI-Dashboard-F2C811?logo=powerbi&logoColor=black)
-![Data Quality](https://img.shields.io/badge/Data%20Quality-PASS-2EA44F)
-![Status](https://img.shields.io/badge/Status-Active%20Development-0A66C2)
 
-A reproducible analytics platform that transforms official U.S. flight-performance data into a validated Parquet dataset, PostgreSQL star schema, analytical SQL layer, and interactive Power BI report.
+I built this project with U.S. Bureau of Transportation Statistics flight data. I wanted to practice the full data flow behind a dashboard, so I took the January 2024 CSV through validation, cleaning, Parquet, PostgreSQL, SQL views, and finally Power BI.
 
 </div>
 
 ---
 
-## 📌 Table of Contents
+## What I built
 
-- [Project Overview](#-project-overview)
-- [Key Results](#-key-results)
-- [Business Questions](#-business-questions)
-- [Dashboard Preview](#-dashboard-preview)
-- [Dashboard Pages](#-dashboard-pages)
-- [Architecture](#-architecture)
-- [Data Source](#-data-source)
-- [Technology Stack](#-technology-stack)
-- [Data Warehouse Design](#-data-warehouse-design)
-- [Data Quality Framework](#-data-quality-framework)
-- [Notes From Fixing This Myself](#️-notes-from-fixing-this-myself)
-- [Data Cleaning and Transformation](#-data-cleaning-and-transformation)
-- [Metric Definitions](#-metric-definitions)
-- [Selected Insights](#-selected-insights)
-- [Project Structure](#-project-structure)
-- [Local Setup](#-local-setup)
-- [Running the Pipeline](#-running-the-pipeline)
-- [Power BI Report](#-power-bi-report)
-- [Engineering Notes](#-engineering-notes)
-- [Current Status](#-current-status)
-- [Limitations](#-limitations)
-- [Future Improvements](#-future-improvements)
-- [Skills Demonstrated](#-skills-demonstrated)
-
----
-
-# 🚀 Project Overview
-
-I built this to prove to myself (and hopefully to whoever's reading this) that I can do more than put together a dashboard. I wanted to go through an actual end-to-end pipeline on real government data -- U.S. Bureau of Transportation Statistics flight-performance records, all the way from a raw CSV to a PostgreSQL warehouse to a Power BI report.
-
-Here's the flow it goes through:
+For now, the project uses January 2024 data: **547,271 scheduled flight segments** across 15 reporting airlines and 334 airports. I kept it to one month while building the pipeline because it was large enough to make the validation and loading steps meaningful, but still quick enough to rerun when I changed something.
 
 ```text
-Raw CSV
-   ↓
-Data Profiling
-   ↓
-Raw Data Validation
-   ↓
-Cleaning and Transformation
-   ↓
-Compressed Parquet Dataset
-   ↓
-PostgreSQL Star Schema
-   ↓
-Warehouse Validation
-   ↓
-SQL Analytics Views
-   ↓
-Power BI Dashboard
+BTS CSV
+  ↓
+raw profiling and validation
+  ↓
+Python cleaning and transformation
+  ↓
+Snappy-compressed Parquet
+  ↓
+PostgreSQL star schema
+  ↓
+warehouse reconciliation
+  ↓
+SQL analytics views
+  ↓
+Power BI report
 ```
 
-Right now it's a pilot running on one month of data:
+I did not want this repo to be only a Power BI file. Most of the work is the data side: cleaning the source, checking bad rows, loading a small warehouse, and making sure the numbers still match after the load. The repo includes the code, SQL, tests, CI workflow, and the Power BI report I used at the end.
 
-```text
-January 2024
-```
-
-I picked one month on purpose -- it's still 500K+ real rows, enough to make the cleaning and validation steps actually matter, without making every test run of the pipeline take forever while I was building it. The validation rules, warehouse design, SQL views and DAX measures were all built to scale to more months later (see Future Improvements below).
-
----
-
-# 📊 Key Results
+## Results from the January 2024 pilot
 
 | Metric | Result |
 |---|---:|
@@ -95,291 +54,88 @@ I picked one month on purpose -- it's still 500K+ real rows, enough to make the 
 | Cancellation rate | 3.7% |
 | Delayed arrivals | 126,410 |
 | Delayed departures | 122,259 |
-| Average arrival delay | 10.4 minutes |
-| Average departure delay | 15.7 minutes |
-| Raw CSV size | Approximately 141 MB |
-| Clean Parquet size | Approximately 19.76 MB |
+| Average arrival delay | 10.4 min |
+| Average departure delay | 15.7 min |
+| Raw CSV | ~141 MB |
+| Clean Parquet | ~19.76 MB |
 
-> The Parquet output is approximately **86% smaller** than the original CSV while preserving analytical data types.
+The cleaned Parquet file is about 86% smaller than the original CSV, which also made the later reloads faster while I was working on the project.
 
----
+## Dashboard
 
-# ❓ Business Questions
-
-I framed the whole thing around questions an airline ops or BI team would actually ask, not just metrics for their own sake:
-
-### Overall reliability
-
-- What percentage of flights arrive on time?
-- What percentage of departures leave on time?
-- How frequently are flights cancelled or diverted?
-- How does reliability change throughout the month?
-
-### Airline performance
-
-- Which airlines have the highest and lowest on-time rates?
-- Does a larger operating scale lead to better reliability?
-- Which airlines have the highest cancellation rates?
-- How do delay causes differ across airlines?
-
-### Airport performance
-
-- Which major origin airports have the strongest departure reliability?
-- Which busy airports experience the highest average departure delay?
-- How does airport performance change by airline or state?
-
-### Route performance
-
-- Which high-traffic routes have the strongest and weakest reliability?
-- Does route traffic volume relate to on-time arrival performance?
-- Which routes combine high traffic with elevated delay risk?
-
-### Time patterns
-
-- Which weekdays have the best departure performance?
-- Which scheduled departure hours have the highest delay risk?
-- Does reliability generally decline later in the day?
-
----
-
-# 🖼️ Dashboard Preview
-
-## 1. Executive Overview
-
-The executive overview summarizes:
-
-- Total flight volume
-- Arrival on-time rate
-- Cancellation rate
-- Average arrival delay
-- Delayed arrivals
-- Cancelled flights
-- Daily on-time trend
-- Flight-status distribution
-- Bottom five airlines by on-time rate
+### Executive overview
 
 ![Executive Overview](docs/images/dashboard/executive_overview.png)
 
----
-
-## 2. Airline Scale vs Reliability
-
-This scatter plot compares airline operating scale with reliability.
-
-- **X-axis:** total scheduled flights
-- **Y-axis:** on-time arrival rate
-- **Bubble size:** cancelled flights
+### Airline scale and reliability
 
 ![Airline Scale vs Reliability](docs/images/dashboard/airline_scale_reliability.png)
 
----
-
-## 3. Delay Cause Mix
-
-This view compares the proportional composition of reported delay causes across airlines.
-
-The five BTS delay categories are:
-
-- Carrier
-- Weather
-- National Air System
-- Security
-- Late aircraft
+### Delay cause mix
 
 ![Delay Cause Mix](docs/images/dashboard/delay_cause_mix.png)
 
----
-
-## 4. Airport Ranking
-
-This page compares departure on-time performance across the 20 busiest origin airports.
+### Airport ranking
 
 ![Airport Ranking](docs/images/dashboard/airport_ranking.png)
 
----
-
-## 5. Time Patterns
-
-The heatmap shows how departure reliability changes across weekdays and scheduled departure hours.
+### Time patterns
 
 ![Time Patterns](docs/images/dashboard/time_patterns.png)
 
----
+The Power BI report contains eight pages covering overall reliability, airline ranking, airline comparison, scale versus reliability, delay causes, airport ranking, route reliability, and departure-time patterns.
 
-# 📑 Dashboard Pages
+## Questions I used for the dashboard
 
-The Power BI report contains eight analytical pages.
+I used these questions to decide what should go into the SQL views and Power BI pages:
 
-## 1. Executive Overview
+- How often do flights arrive and depart on time?
+- Which airlines have the strongest and weakest reliability?
+- Which busy origin airports combine high traffic with poor departure performance?
+- Which routes have high volume and elevated delay risk?
+- How does reliability change through the day and across weekdays?
+- How does the reported mix of carrier, weather, NAS, security, and late-aircraft delays vary by airline?
 
-High-level operational summary containing:
-
-- Overall KPIs
-- Daily reliability trend
-- Flight-status distribution
-- Bottom five airlines by on-time rate
-
-## 2. Airline Ranking
-
-Ranks all 15 reporting airlines by on-time arrival rate.
-
-## 3. Airline Comparison Table
-
-Provides a detailed comparison of:
-
-- Total flights
-- On-time arrival rate
-- Cancellation rate
-- Average arrival delay
-- Delayed arrival rate
-
-## 4. Airline Scale vs Reliability
-
-Compares:
-
-- Airline operating scale
-- Arrival reliability
-- Cancellation volume
-
-## 5. Delay Cause Mix
-
-Displays each airline's proportional delay composition across five reported delay categories.
-
-## 6. Airport Ranking
-
-Compares departure performance among the 20 busiest origin airports.
-
-## 7. Route Reliability
-
-Uses a column-and-line combination chart:
-
-- Columns represent scheduled flights
-- The line represents on-time arrival rate
-
-## 8. Time Patterns
-
-Uses a matrix heatmap to compare departure on-time rates by:
-
-- Weekday
-- Scheduled departure hour
-
----
-
-# 🏗️ Architecture
+## Architecture
 
 ```mermaid
 flowchart LR
-    A["BTS Raw CSV"] --> B["Raw Data Profiling"]
-    B --> C["Raw Data Validation"]
-    C --> D["Cleaning & Transformation"]
-    D --> E["Clean Parquet Dataset"]
-    E --> F["Dimension Loading"]
-    F --> G["Fact Loading"]
-    G --> H["Warehouse Validation"]
-    H --> I["SQL Analytics Views"]
-    I --> J["Power BI Data Model"]
-    J --> K["Interactive Dashboard"]
+    A[BTS raw CSV] --> B[Raw validation]
+    B --> C[Python transform]
+    C --> D[Parquet]
+    D --> E[Dimensions]
+    E --> F[Flight fact]
+    F --> G[Warehouse validation]
+    G --> H[SQL analytics views]
+    H --> I[Power BI]
 ```
 
-### Pipeline layers
+### Storage and reporting layers
 
 | Layer | Purpose |
 |---|---|
-| Raw | Original BTS CSV stored without modification |
-| Interim | Profiling, validation, and temporary loading outputs |
-| Processed | Clean analytical Parquet dataset |
-| Warehouse | PostgreSQL star schema |
-| Analytics | SQL views for reporting and Power BI |
-| Presentation | Interactive Power BI dashboard |
+| Raw | Unmodified BTS monthly extract |
+| Interim | Profiles, validation output, temporary load files |
+| Processed | Typed, compressed Parquet output |
+| Warehouse | PostgreSQL dimensions and flight fact table |
+| Analytics | Reusable SQL views for reporting |
+| Presentation | Power BI report |
 
----
+## Data source
 
-# 🛫 Data Source
+Source: **U.S. Department of Transportation, Bureau of Transportation Statistics — Reporting Carrier On-Time Performance**.
 
-The project uses the official:
+The current checked-in code is built around the January 2024 pilot extract. Raw and processed datasets are intentionally excluded from Git because of their size.
 
-## Reporting Carrier On-Time Performance (1987–present)
-
-Provider:
-
-**U.S. Department of Transportation — Bureau of Transportation Statistics**
-
-Data portal:
-
-[https://www.transtats.bts.gov/](https://www.transtats.bts.gov/)
-
-### Pilot data selection
-
-| Setting | Selection |
-|---|---|
-| Geography | All |
-| Year | 2024 |
-| Period | January |
-| Reporting level | Scheduled flight segment |
-| Raw records | 547,271 |
-| Selected source columns | 48 |
-
-The raw CSV is intentionally excluded from Git because of its size.
-
-Expected local path:
+Expected source path:
 
 ```text
 data/raw/flights_2024_01.csv
 ```
 
----
+More details are in [`data/README.md`](data/README.md).
 
-# 🧰 Technology Stack
-
-## Data Engineering
-
-- Python
-- pandas
-- PyArrow
-- Parquet
-- python-dotenv
-
-## Database
-
-- PostgreSQL 18
-- psycopg 3
-- PostgreSQL `COPY`
-- Star schema modelling
-
-## Data Quality
-
-- Structural validation
-- Schema validation
-- Business-rule validation
-- Duplicate detection
-- Foreign-key checks
-- Source-to-warehouse reconciliation
-
-## Analytics and Visualisation
-
-- SQL analytical views
-- Power BI Desktop
-- DAX measures
-- Slicers and cross-filtering
-- Conditional formatting
-- Matrix heatmaps
-- Scatter plots
-- Combination charts
-- KPI cards
-
-## Development Tools
-
-- Visual Studio Code
-- Git
-- GitHub
-- PowerShell
-- Python virtual environment
-
----
-
-# 🗄️ Data Warehouse Design
-
-The PostgreSQL warehouse follows a star-schema design.
+## Warehouse model
 
 ```mermaid
 erDiagram
@@ -387,576 +143,213 @@ erDiagram
     DIM_AIRLINE ||--o{ FACT_FLIGHT : airline_key
     DIM_AIRPORT ||--o{ FACT_FLIGHT : origin_airport_key
     DIM_AIRPORT ||--o{ FACT_FLIGHT : destination_airport_key
-
-    DIM_DATE {
-        int date_key PK
-        date full_date
-        smallint year_number
-        smallint quarter_number
-        smallint month_number
-        varchar month_name
-        smallint day_of_month
-        smallint day_of_week_number
-        varchar day_name
-        boolean is_weekend
-    }
-
-    DIM_AIRLINE {
-        int airline_key PK
-        int reporting_airline_id
-        varchar reporting_airline_code
-    }
-
-    DIM_AIRPORT {
-        int airport_key PK
-        int airport_id
-        varchar airport_code
-        varchar city_name
-        varchar state_code
-        varchar state_name
-    }
-
-    FACT_FLIGHT {
-        bigint flight_key PK
-        int date_key FK
-        int airline_key FK
-        int origin_airport_key FK
-        int destination_airport_key FK
-        int flight_number
-        varchar route_code
-        boolean cancelled
-        boolean diverted
-        varchar flight_status
-        real departure_delay_minutes
-        real arrival_delay_minutes
-        boolean arrival_on_time
-        real distance_miles
-        real total_reported_delay_minutes
-    }
 ```
 
-## Dimension tables
-
-### `warehouse.dim_date`
-
-Stores one row for each calendar date.
-
-### `warehouse.dim_airline`
-
-Stores one row for each reporting airline.
-
-### `warehouse.dim_airport`
-
-Stores one row for each airport.
-
-The same dimension is reused for:
-
-- Origin airport
-- Destination airport
-
-## Fact table
-
-### `warehouse.fact_flight`
-
-Stores one row for each scheduled flight segment.
-
-The fact table includes:
-
-- Flight number
-- Tail number
-- Route
-- Scheduled and actual times
-- Departure delay
-- Arrival delay
-- Taxi time
-- Flight duration
-- Distance
-- Cancellation status
-- Diversion status
-- Flight status
-- Delay causes
-- Arrival outcome
-
----
-
-# 🔎 Analytical SQL Views
-
-The reporting layer contains reusable PostgreSQL views.
-
-| View | Purpose |
-|---|---|
-| `analytics.vw_flight_detail` | Denormalized flight-level analytical view |
-| `analytics.vw_overview_metrics` | Overall KPIs |
-| `analytics.vw_daily_performance` | Daily reliability trends |
-| `analytics.vw_airline_performance` | Airline-level comparison |
-| `analytics.vw_origin_airport_performance` | Origin-airport performance |
-| `analytics.vw_route_performance` | Route-level reliability |
-| `analytics.vw_departure_hour_performance` | Scheduled-hour analysis |
-| `analytics.vw_delay_cause_by_airline` | Delay causes in long format |
-
-Power BI currently imports:
+The fact-table grain is one scheduled flight segment. Its natural uniqueness rule uses:
 
 ```text
-analytics vw_flight_detail
+flight date
++ reporting airline
++ flight number
++ origin airport
++ destination airport
++ scheduled departure time
 ```
 
-This view contains the joined fact and dimension attributes required by the dashboard.
+I also put the basic rules in PostgreSQL instead of relying only on Python checks: primary and foreign keys, non-negative values, status rules, and a unique scheduled-flight constraint.
 
----
+### Dimensions
 
-# ✅ Data Quality Framework
+`warehouse.dim_date`
 
-Validation is performed at three separate stages.
+- one row per calendar date
+- calendar attributes are derived from `flight_date`
 
-## 1. Raw Data Validation
+`warehouse.dim_airline`
+
+- stable BTS airline ID
+- reporting carrier code
+
+`warehouse.dim_airport`
+
+- stable BTS airport ID
+- airport code, city, and state fields
+- reused for both origin and destination keys
+
+### Fact table
+
+`warehouse.fact_flight` stores scheduled and actual timing fields, delays, taxi and elapsed time, distance, cancellation/diversion status, route, and reported delay-cause minutes.
+
+## Analytics views
+
+The SQL reporting layer currently includes:
+
+- `analytics.vw_flight_detail`
+- `analytics.vw_overview_metrics`
+- `analytics.vw_daily_performance`
+- `analytics.vw_airline_performance`
+- `analytics.vw_origin_airport_performance`
+- `analytics.vw_route_performance`
+- `analytics.vw_departure_hour_performance`
+- `analytics.vw_delay_cause_by_airline`
+
+Power BI currently imports `analytics.vw_flight_detail` as its reporting source.
+
+## Data checks
+
+I validate the data three times: before cleaning, after writing Parquet, and again after loading PostgreSQL. I added the warehouse check because a script finishing without an error does not necessarily mean the loaded numbers are right.
+
+### Raw source
 
 Checks include:
 
-- Required columns
-- Invalid dates
-- Date-part consistency
-- Missing flight identifiers
-- Exact duplicate rows
-- Duplicate flight keys
-- Invalid cancellation indicators
-- Invalid diversion indicators
-- Missing distance values
-- Negative unsigned values
-- Departure delay-indicator consistency
-- Arrival delay-indicator consistency
-- Cancellation-code consistency
-- Origin and destination consistency
+- all selected BTS columns are present;
+- `FL_DATE` parses correctly;
+- year, quarter, month, day, and weekday agree with `FL_DATE`;
+- flight-key fields are complete and unique;
+- cancelled and diverted flags are present and valid;
+- a row is not both cancelled and diverted;
+- warehouse-required identifiers, codes, scheduled times, flight count, and distance are present;
+- unsigned measurements are non-negative;
+- `DEP_DEL15` and `ARR_DEL15` agree with their delay-minute fields;
+- cancellation-code and origin/destination anomalies are reported as warnings.
 
-Result:
+### Clean Parquet
 
-```text
-Overall status: PASS
-```
+The clean validator checks the warehouse contract before loading. It verifies required values, derived calendar fields, route codes, status flags, scheduled-hour parsing, delay totals, non-negative measurements, uniqueness, and arrival-on-time logic.
 
-## 2. Clean Data Validation
+### PostgreSQL warehouse
 
-Checks include:
+The warehouse validator reconciles source and target row counts, flight-status counts, arrival outcomes, dimension counts, natural-key uniqueness, reported delay minutes, and foreign-key resolution.
 
-- Required transformed fields
-- Empty dataset
-- Invalid reporting period
-- Missing flight keys
-- Duplicate flight keys
-- Invalid flight status
-- Cancelled and diverted conflicts
-- Route-code consistency
-- Weekend-indicator consistency
-- Scheduled-hour validity
-- Missing distance values
-- Negative measurements
-- Delay-cause total consistency
-- Arrival on-time consistency
+If a critical rule fails, the validator now exits with an error instead of only printing `FAIL`. This was one of the things I changed after testing how the scripts behaved from PowerShell and CI.
 
-Result:
+## One time-field bug I fixed
 
-```text
-Overall status: PASS
-```
+BTS scheduled times are stored as HHMM integers. My first version only divided the value by 100 and took the hour, which meant something invalid like `2460` could turn into hour `0`. I changed the parser so normal `0000`–`2359` values and the BTS `2400` edge case are accepted, while values such as `2360`, `2460`, and `2500` are rejected.
 
-## 3. Warehouse Validation
+## Warehouse loading
 
-The PostgreSQL warehouse is reconciled against the clean Parquet dataset.
+The loader now does the following:
 
-Checks include:
+1. checks the clean dataset against the warehouse contract;
+2. builds date, airline, and airport dimensions;
+3. verifies conflicting dimension attributes before insertion;
+4. maps natural IDs to surrogate keys;
+5. bulk-loads the flight fact table with PostgreSQL `COPY`;
+6. reconciles the loaded fact count before the transaction commits;
+7. removes the temporary CSV used by `COPY`.
 
-- Date dimension row count
-- Airline dimension row count
-- Airport dimension row count
-- Fact table row count
-- Completed flight count
-- Cancelled flight count
-- Diverted flight count
-- On-time arrival count
-- Delayed arrival count
-- Unknown arrival count
-- Orphan date keys
-- Orphan airline keys
-- Orphan origin-airport keys
-- Orphan destination-airport keys
+I originally had the row-count check after the transaction had already committed. I moved it inside the transaction, so a count mismatch now rolls the load back instead of leaving a bad load in the database.
 
-Result:
-
-```text
-Overall status: PASS
-```
-
----
-
-# 🛠️ Notes From Fixing This Myself
-
-After I had the whole pipeline running end to end, I went back through my own validation scripts to make sure the PASS badges weren't just for show, and found two real gaps:
-
-- The non-negative checks did `flight_data[column] < 0`, and in pandas `NaN < 0` evaluates to `False`. `distance_miles` is supposed to be NOT NULL in the warehouse, so a missing value there would have slipped past every check I had until the database itself rejected it. I added an explicit "not missing" check for it instead of relying on the negative-value check to catch it.
-- The warehouse load's own row-count reconciliation ran *after* the database connection had already committed. So if the counts ever didn't match, the bad data would already be sitting in the warehouse by the time I found out -- the check could report the problem but not actually undo it. I moved it inside the transaction so a mismatch now rolls the load back.
-
-Neither of these showed up while running the pipeline against a clean January 2024 file, which is exactly why I think they're worth writing down here: a validation script passing doesn't automatically mean the validation logic itself is airtight. I only caught these by re-reading my own code with a "how would this actually fail" mindset instead of just checking that it ran.
-
----
-
-# 🧹 Data Cleaning and Transformation
-
-The Python transformation pipeline performs the following operations:
-
-- Selects the project source fields
-- Renames source columns to descriptive `snake_case`
-- Converts flight dates to datetime
-- Trims whitespace from text fields
-- Converts empty strings to null
-- Applies nullable integer data types
-- Applies memory-efficient floating-point types
-- Removes exact duplicate rows
-- Preserves cancelled flights
-- Preserves diverted flights
-- Converts missing delay-cause minutes to zero
-- Retains whether delay causes were originally reported
-- Creates route identifiers
-- Creates weekend indicators
-- Extracts scheduled departure hours
-- Extracts scheduled arrival hours
-- Creates flight-status categories
-- Creates arrival on-time outcomes
-- Writes the clean result to compressed Parquet
-
-No records were removed during the January 2024 cleaning process because no exact duplicates were detected.
-
----
-
-# 🧮 Derived Fields
-
-## `route_code`
-
-Combines the origin and destination airport codes.
-
-Example:
-
-```text
-LAX-JFK
-```
-
-## `is_weekend`
-
-Identifies Saturday and Sunday flights.
-
-## `scheduled_departure_hour`
-
-Extracts an hour between `0` and `23` from the scheduled departure time.
-
-## `scheduled_arrival_hour`
-
-Extracts an hour between `0` and `23` from the scheduled arrival time.
-
-## `flight_status`
-
-Possible values:
-
-```text
-Completed
-Cancelled
-Diverted
-```
-
-## `arrival_on_time`
-
-| Value | Meaning |
-|---|---|
-| `TRUE` | Arrival delay is below 15 minutes |
-| `FALSE` | Arrival delay is at least 15 minutes |
-| `NULL` | No completed arrival outcome |
-
-## `delay_cause_reported`
-
-Indicates whether delay-cause information was originally supplied by BTS.
-
-## `total_reported_delay_minutes`
-
-Sum of:
-
-```text
-Carrier delay
-+ Weather delay
-+ National Air System delay
-+ Security delay
-+ Late aircraft delay
-```
-
----
-
-# 📐 Metric Definitions
-
-## Arrival On-Time Rate
-
-```text
-On-Time Completed Arrivals
-──────────────────────────
-Eligible Completed Arrivals
-```
-
-A flight is considered delayed when arrival delay is at least 15 minutes.
-
-## Departure On-Time Rate
-
-```text
-On-Time Departures
-──────────────────
-Eligible Departures
-```
-
-A departure is considered delayed when departure delay is at least 15 minutes.
-
-## Cancellation Rate
-
-```text
-Cancelled Flights
-─────────────────
-Scheduled Flights
-```
-
-## Average Arrival Delay
-
-Calculated using signed arrival-delay minutes.
-
-- Positive value: late arrival
-- Negative value: early arrival
-
-## Average Departure Delay
-
-Calculated using signed departure-delay minutes.
-
-- Positive value: late departure
-- Negative value: early departure
-
----
-
-# 💡 Selected Insights
-
-## Overall reliability
-
-A few things stood out once I had the dashboard up:
-
-- Approximately **75.9%** of eligible arrivals were on time.
-- Approximately **76.8%** of eligible departures were on time.
-- Approximately **3.7%** of scheduled flights were cancelled.
-- There were **126,410 delayed arrivals**.
-- There were **122,259 delayed departures**.
-
-## Airline performance
-
-- Reliability differed noticeably across the 15 reporting airlines.
-- A larger operating scale did not always correspond to a higher on-time rate.
-- Airline cancellation volume and cancellation rate provided different operational perspectives.
-
-## Airport performance
-
-- Departure on-time rates varied substantially across the busiest origin airports.
-- High traffic volume did not automatically imply weak reliability.
-- Major airports with similar traffic volumes could still have different delay outcomes.
-
-## Route performance
-
-- The busiest routes differed in both scheduled volume and on-time arrival performance.
-- Route traffic volume alone did not explain reliability.
-
-## Time patterns
-
-- Early-morning departures generally had the strongest on-time performance.
-- Reliability generally declined as the scheduled departure hour became later.
-- Afternoon and evening periods showed stronger accumulated delay risk.
-- Departure performance also differed across weekdays.
-
----
-
-# 📁 Project Structure
-
-```text
-flight-reliability-platform/
-│
-├── data/
-│   ├── README.md
-│   ├── raw/
-│   │   └── flights_2024_01.csv          # generated by the pipeline; gitignored
-│   ├── interim/
-│   ├── processed/
-│   │   └── flights_2024_01_clean.parquet  # generated by the pipeline; gitignored
-│   └── reference/
-│
-├── docs/
-│   ├── testing_strategy.md
-│   ├── incremental_loading_design.md
-│   └── images/
-│       └── dashboard/
-│           ├── executive_overview.png
-│           ├── airline_scale_reliability.png
-│           ├── delay_cause_mix.png
-│           ├── airport_ranking.png
-│           └── time_patterns.png
-│
-├── models/
-├── powerbi/
-│   └── flight_reliability_dashboard.pbix
-├── sql/
-│   ├── analytics/
-│   │   └── 001_create_analytics_views.sql
-│   └── schema/
-│       └── 001_create_warehouse.sql
-├── src/
-│   ├── load/
-│   │   ├── load_warehouse.py
-│   │   └── test_database_connection.py
-│   ├── transform/
-│   │   └── clean_flight_data.py
-│   └── validation/
-│       ├── inspect_raw_data.py
-│       ├── validate_raw_data.py
-│       ├── validate_clean_data.py
-│       └── validate_warehouse.py
-├── tests/
-│   └── test_clean_transform_helpers.py
-│
-├── .github/
-│   └── workflows/
-│       └── tests.yml
-│
-├── .env.example
-├── .gitignore
-├── docker-compose.yml
-├── LICENSE
-├── README.md
-└── requirements.txt
-```
-
----
-
-# ⚙️ Local Setup
-
-## 1. Clone the repository
+The loader also accepts a different Parquet input path:
 
 ```powershell
-git clone <your-repository-url>
+python src\load\load_warehouse.py --input path\to\clean.parquet
+```
+
+The raw validation and transformation scripts are still tied to the January 2024 file. I have written down how I would handle monthly batches, but I have not implemented that part yet.
+
+## Tests and CI
+
+I started with transformation unit tests, then added loader tests and a small PostgreSQL integration test after I found that some database problems cannot be caught by testing pandas code alone. GitHub Actions now starts PostgreSQL 18 and runs:
+
+- transformation unit tests;
+- warehouse-helper unit tests;
+- a PostgreSQL integration test;
+- a smoke test against the analytics views;
+- Python bytecode compilation.
+
+The integration test uses a small fake flight dataset. It creates the same warehouse schema and analytics views used by the project, runs the loader, and checks a few final rows and metrics. I keep the fixture small so the CI run stays fast.
+
+See [`docs/testing_strategy.md`](docs/testing_strategy.md) for details.
+
+## Local setup
+
+### 1. Clone the repository
+
+```powershell
+git clone https://github.com/momo840505/flight-reliability-platform.git
 cd flight-reliability-platform
 ```
 
-## 2. Create a virtual environment
+### 2. Create a Python 3.11 environment
 
 ```powershell
-py -m venv .venv
-```
-
-Activate it:
-
-```powershell
+py -3.11 -m venv .venv
 .venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
-## 3. Install dependencies
-
-```powershell
-pip install -r requirements.txt
-```
-
-## 4. Download the raw data
-
-Download the January 2024 Reporting Carrier On-Time Performance data from BTS TranStats.
-
-Rename the file:
-
-```text
-flights_2024_01.csv
-```
-
-Place it at:
-
-```text
-data/raw/flights_2024_01.csv
-```
-
-## 5. Configure PostgreSQL
-
-Copy the environment template:
+### 3. Configure PostgreSQL
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Update `.env`:
+The default local values match `docker-compose.yml`:
 
-```env
+```text
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5433
 POSTGRES_DATABASE=flight_reliability
 POSTGRES_USER=flight_admin
-POSTGRES_PASSWORD=your_local_password
+POSTGRES_PASSWORD=flight_password
 ```
 
-> This project uses port `5433` locally because multiple PostgreSQL versions are installed. Other users may use the default port `5432`.
+Change the password in `.env` if needed. Docker Compose reads the same environment variables, so the container and Python loader stay in sync.
 
-Never commit the `.env` file.
+### 4. Start PostgreSQL
 
----
+```powershell
+docker compose up -d postgres
+```
 
-# ▶️ Running the Pipeline
+The PostgreSQL 18 data volume is mounted at `/var/lib/postgresql`, matching the current official image layout.
 
-## Step 1 — Profile the raw data
+### 5. Add the BTS source file
+
+Place the January 2024 extract at:
+
+```text
+data/raw/flights_2024_01.csv
+```
+
+## Run the pipeline
+
+Profile the raw extract:
 
 ```powershell
 python src\validation\inspect_raw_data.py
 ```
 
-Outputs:
-
-```text
-data/interim/flights_2024_01_profile.txt
-data/interim/flights_2024_01_missing_values.csv
-data/interim/flights_2024_01_data_types.csv
-```
-
-## Step 2 — Validate the raw data
+Validate it:
 
 ```powershell
 python src\validation\validate_raw_data.py
 ```
 
-## Step 3 — Clean and transform the data
+Transform it:
 
 ```powershell
 python src\transform\clean_flight_data.py
 ```
 
-Output:
-
-```text
-data/processed/flights_2024_01_clean.parquet
-```
-
-## Step 4 — Validate the clean data
+Validate the Parquet output:
 
 ```powershell
 python src\validation\validate_clean_data.py
 ```
 
-## Step 5 — Test the database connection
+Create the warehouse schema:
 
 ```powershell
-python src\load\test_database_connection.py
+$env:PGPASSWORD = "flight_password"
+psql -h localhost -p 5433 -U flight_admin -d flight_reliability `
+  -v ON_ERROR_STOP=1 -f sql\schema\001_create_warehouse.sql
 ```
 
-## Step 6 — Create the warehouse schema
-
-```powershell
-& "C:\Program Files\PostgreSQL\18\bin\psql.exe" `
--U flight_admin `
--h localhost `
--p 5433 `
--d flight_reliability `
--v ON_ERROR_STOP=1 `
--f sql\schema\001_create_warehouse.sql
-```
-
-## Step 7 — Load the warehouse
+Load the warehouse:
 
 ```powershell
 python src\load\load_warehouse.py
@@ -968,305 +361,110 @@ For a complete reload:
 python src\load\load_warehouse.py --replace
 ```
 
-## Step 8 — Validate the warehouse
+Validate PostgreSQL:
 
 ```powershell
 python src\validation\validate_warehouse.py
 ```
 
-## Step 9 — Create analytical views
+Create the analytics views:
 
 ```powershell
-& "C:\Program Files\PostgreSQL\18\bin\psql.exe" `
--U flight_admin `
--h localhost `
--p 5433 `
--d flight_reliability `
--v ON_ERROR_STOP=1 `
--f sql\analytics\001_create_analytics_views.sql
+psql -h localhost -p 5433 -U flight_admin -d flight_reliability `
+  -v ON_ERROR_STOP=1 -f sql\analytics\001_create_analytics_views.sql
 ```
 
-## Step 10 — Open the Power BI report
-
-Open:
+Open the Power BI file:
 
 ```text
 powerbi/flight_reliability_dashboard.pbix
 ```
 
-Refresh the PostgreSQL source if required.
-
----
-
-# 📊 Power BI Report
-
-## Data source
-
-Power BI imports:
+## Project structure
 
 ```text
-analytics vw_flight_detail
+flight-reliability-platform/
+├── .github/workflows/tests.yml
+├── data/
+│   ├── README.md
+│   ├── raw/
+│   ├── interim/
+│   └── processed/
+├── docs/
+│   ├── images/dashboard/
+│   ├── incremental_loading_design.md
+│   └── testing_strategy.md
+├── powerbi/
+│   └── flight_reliability_dashboard.pbix
+├── sql/
+│   ├── analytics/001_create_analytics_views.sql
+│   └── schema/001_create_warehouse.sql
+├── src/
+│   ├── contracts.py
+│   ├── database.py
+│   ├── load/
+│   │   ├── load_warehouse.py
+│   │   └── test_database_connection.py
+│   ├── transform/
+│   │   └── clean_flight_data.py
+│   └── validation/
+│       ├── inspect_raw_data.py
+│       ├── validate_raw_data.py
+│       ├── validate_clean_data.py
+│       └── validate_warehouse.py
+├── tests/
+│   ├── test_clean_transform_helpers.py
+│   ├── test_load_helpers.py
+│   └── test_postgres_integration.py
+├── .env.example
+├── docker-compose.yml
+├── pyproject.toml
+├── requirements.txt
+└── README.md
 ```
 
-## Main DAX measures
+## What is still missing
 
-```text
-Total Flights
-Completed Flights
-Cancelled Flights
-Diverted Flights
-Eligible Arrivals
-On-Time Arrivals
-Delayed Arrivals
-On-Time Arrival Rate
-Cancellation Rate
-Average Arrival Delay
-Eligible Departures
-On-Time Departures
-Delayed Departures
-Departure On-Time Rate
-Average Departure Delay
-Carrier Delay Minutes
-Weather Delay Minutes
-NAS Delay Minutes
-Security Delay Minutes
-Late Aircraft Delay Minutes
-Total Reported Delay Minutes
-```
+This is still a student portfolio project, not a finished production platform. The main gaps are:
 
-## Interactive filters
+- The checked-in pipeline still uses one month of source data.
+- Multi-month batch discovery and load-control metadata are designed but not implemented.
+- Airline names are not yet joined from a separate reference table.
+- Airport latitude, longitude, and time-zone data are not included.
+- Weather is represented by BTS reported weather-delay minutes rather than external meteorological data.
+- The Power BI report is stored as a `.pbix` binary, so its model and DAX are not diff-friendly in Git.
+- The project is descriptive; it does not include a delay-prediction model.
+- There is no cloud deployment in this repository.
 
-Depending on the report page, users can filter by:
+## What I would add next
 
-- Airline
-- Origin airport
-- Destination airport
-- Origin state
-- Flight date
+If I continue this project, I would work on these in roughly this order:
 
----
+1. monthly batch ingestion with a checksum-based load-control table;
+2. a source manifest for reproducible BTS extracts;
+3. dbt models/tests for the analytics layer;
+4. migration of the Power BI report to PBIP/TMDL for source control;
+5. scheduled deployment on AWS or Azure with secrets and monitoring.
 
-# 🔐 Reproducibility and Security
+The proposed incremental-load design is documented in [`docs/incremental_loading_design.md`](docs/incremental_loading_design.md).
 
-The repository intentionally excludes:
+## Tools used
 
-```text
-.env
-Raw CSV data
-Processed Parquet datasets
-Interim validation reports
-Temporary warehouse load files
-Database passwords
-```
-
-The repository includes:
-
-```text
-Python source code
-SQL schema
-SQL analytical views
-Power BI report
-Dashboard screenshots
-Environment template
-Dependency list
-Technical documentation
-```
-
----
-
-# Engineering Notes
-
-Additional production-style engineering notes are included for maintainability and portfolio review:
-
-- [Testing strategy](docs/testing_strategy.md)
-- [Incremental loading design](docs/incremental_loading_design.md)
-
-These documents explain how the project can move from a pilot BI platform into a more automated data engineering workflow with CI checks, reproducible PostgreSQL setup, and monthly incremental loading.
-
----
-
-# ✅ Current Status
-
-- [x] Project structure created
-- [x] Python virtual environment configured
-- [x] Pilot dataset downloaded
-- [x] Raw data profiled
-- [x] Raw data validated
-- [x] Cleaning pipeline completed
-- [x] Parquet dataset created
-- [x] Clean dataset validated
-- [x] PostgreSQL connection configured
-- [x] Star schema created
-- [x] Warehouse loading pipeline completed
-- [x] Warehouse validated
-- [x] SQL analytics views created
-- [x] Power BI report created
-- [x] Dashboard screenshots created
-- [x] Airline analysis completed
-- [x] Airport analysis completed
-- [x] Route analysis completed
-- [x] Time-pattern analysis completed
-- [x] Dashboard screenshots added to README
-- [x] Automated unit tests for the core cleaning/transformation logic
-- [ ] Multi-month incremental loading
-- [ ] Automated tests for warehouse loading and validation scripts
-- [ ] Full airline-name reference dimension
-- [ ] Delay prediction model
-- [ ] Cloud deployment
-
----
-
-# ⚠️ Limitations
-
-- The current pilot covers only January 2024.
-- Weather is represented using reported weather-delay minutes rather than detailed meteorological observations.
-- Airline codes are displayed instead of full airline names.
-- Airport coordinates are not currently included.
-- Delay causes are available only when reported under BTS reporting rules.
-- The Power BI file currently connects to a local PostgreSQL database.
-- The current analysis is descriptive rather than causal.
-- Predictive modelling has not yet been implemented.
-
----
-
-# 🔮 Future Improvements
-
-## Multi-month data
-
-Extend the platform to multiple months and years.
-
-## Incremental loading
-
-Load only new monthly records instead of rebuilding the full warehouse.
-
-## Airline reference dimension
-
-Add full airline names, corporate information, and historical carrier-code mappings.
-
-## Airport geographic data
-
-Add:
-
-- Latitude
-- Longitude
-- Region
-- Time zone
-- Airport classification
-
-## Automated tests
-
-`tests/test_clean_transform_helpers.py` now covers the core cleaning/transformation
-function (`clean_flight_dataframe` in `src/transform/clean_flight_data.py`): route-code
-construction, the weekend indicator, flight-status classification (including the
-cancelled/diverted precedence rule), on-time arrival logic, delay-cause reporting and
-totals, exact-duplicate detection, and the data-quality guardrails (missing columns,
-invalid dates, incomplete flight keys).
-
-Still to add:
-
-- Unit tests for the warehouse-loading logic (`src/load/load_warehouse.py`)
-- Unit tests for the validation scripts (`src/validation/*.py`)
-- Integration tests covering dimension creation, fact loading, and source-to-target
-  reconciliation end to end
-
-## Delay prediction model
-
-Build a machine-learning model that estimates the probability of an arrival delay.
-
-Potential features:
-
-- Airline
-- Origin airport
-- Destination airport
-- Route
-- Scheduled departure hour
-- Weekday
-- Distance
-- Historical airline performance
-- Historical route performance
-
-## Cloud deployment
-
-Potential deployment architecture:
-
-- Azure Database for PostgreSQL or AWS RDS
-- Power BI Service
-- GitHub Actions
-- Scheduled monthly refresh
-- Automated data-quality alerts
-
----
-
-# 🎯 Skills Demonstrated
-
-This project demonstrates practical experience with:
-
-### Data engineering
-
-- Real-world public datasets
-- Reproducible pipelines
-- Data cleaning
-- Parquet optimisation
-- Bulk loading
-- Incremental-design planning
-
-### Data quality
-
-- Profiling
-- Structural validation
-- Business-rule validation
-- Reconciliation
-- Foreign-key validation
-- Missing-data interpretation
-
-### Database engineering
-
-- PostgreSQL administration
-- Dimensional modelling
-- Star schema design
-- Surrogate keys
-- Constraints and indexes
-- Analytical SQL views
-
-### Business intelligence
-
-- Power BI
-- DAX
-- KPI design
-- Interactive filtering
-- Scatter plots
-- Heatmaps
-- Combination charts
-- Conditional formatting
-- Dashboard storytelling
-
-### Software development
-
-- Python
+- Python 3.11
+- pandas
+- PyArrow / Parquet
+- psycopg 3
+- PostgreSQL 18
 - SQL
-- Git
-- GitHub
-- Environment variables
-- Project documentation
-- Modular project structure
+- Power BI / DAX
+- Docker Compose
+- pytest
+- GitHub Actions
 
----
+## License
 
+MIT
 
-# 🙏 Acknowledgements
+## Data acknowledgement
 
-Flight-performance data used in this project is provided by:
-
-**U.S. Department of Transportation — Bureau of Transportation Statistics**
-
-This project is an independent educational and portfolio project. It is not affiliated with or endorsed by the U.S. Department of Transportation.
-
----
-
-<div align="center">
-
-### ⭐ Thank you for viewing this project
-
-Built with Python, PostgreSQL, SQL, and Power BI.
-
-</div>
+Flight-performance data comes from the U.S. Department of Transportation Bureau of Transportation Statistics. This is my own student portfolio project and is not affiliated with the department.

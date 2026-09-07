@@ -3,15 +3,19 @@ services:
     image: postgres:18
     container_name: flight_reliability_postgres
     environment:
-      POSTGRES_DB: flight_reliability
-      POSTGRES_USER: flight_admin
-      POSTGRES_PASSWORD: flight_password
+      POSTGRES_DB: ${POSTGRES_DATABASE:-flight_reliability}
+      POSTGRES_USER: ${POSTGRES_USER:-flight_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flight_password}
     ports:
-      - "5433:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
-      - flight_reliability_pgdata:/var/lib/postgresql/data
+      - flight_reliability_pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U flight_admin -d flight_reliability"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-flight_admin} -d ${POSTGRES_DATABASE:-flight_reliability}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
