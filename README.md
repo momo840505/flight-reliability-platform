@@ -4,7 +4,7 @@
 
 Python ETL · PostgreSQL warehouse · SQL analytics · Power BI
 
-[![Pipeline checks](https://github.com/momo840505/flight-reliability-platform/actions/workflows/tests.yml/badge.svg)](https://github.com/momo840505/flight-reliability-platform/actions/workflows/tests.yml)
+[![Pipeline checks](https://github.com/momo840505/flight-reliability-platform/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/momo840505/flight-reliability-platform/actions/workflows/tests.yml)
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
 ![Power BI](https://img.shields.io/badge/Power%20BI-Dashboard-F2C811?logo=powerbi&logoColor=black)
@@ -222,7 +222,7 @@ The clean validator checks the warehouse contract before loading. It verifies re
 
 The warehouse validator reconciles source and target row counts, flight-status counts, arrival outcomes, dimension counts, natural-key uniqueness, reported delay minutes, and foreign-key resolution.
 
-If a critical rule fails, the validator now exits with an error instead of only printing `FAIL`. This was one of the things I changed after testing how the scripts behaved from PowerShell and CI.
+If a critical rule fails, the validator exits with an error instead of only printing `FAIL`. This was one of the things I changed after testing how the scripts behaved from PowerShell and CI.
 
 ## One time-field bug I fixed
 
@@ -252,7 +252,7 @@ The raw validation and transformation scripts are still tied to the January 2024
 
 ## Tests and CI
 
-I started with transformation unit tests, then added loader tests and a small PostgreSQL integration test after I found that some database problems cannot be caught by testing pandas code alone. GitHub Actions now starts PostgreSQL 18 and runs:
+I started with transformation unit tests, then added loader tests and a small PostgreSQL integration test after I found that some database problems cannot be caught by testing pandas code alone. GitHub Actions starts PostgreSQL 18 and runs:
 
 - transformation unit tests;
 - warehouse-helper unit tests;
@@ -260,7 +260,7 @@ I started with transformation unit tests, then added loader tests and a small Po
 - a smoke test against the analytics views;
 - Python bytecode compilation.
 
-The integration test uses a small fake flight dataset. It creates the same warehouse schema and analytics views used by the project, runs the loader, and checks a few final rows and metrics. I keep the fixture small so the CI run stays fast.
+The integration test uses a small test dataset. It creates the same warehouse schema and analytics views used by the project, runs the loader, and checks a few final rows and metrics. I keep the fixture small so the CI run stays fast.
 
 See [`docs/testing_strategy.md`](docs/testing_strategy.md) for details.
 
