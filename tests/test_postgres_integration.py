@@ -21,6 +21,7 @@ def integration_rows() -> pd.DataFrame:
             "reporting_airline_id": [1, 1],
             "reporting_airline_code": ["AA", "AA"],
             "flight_number": [10, 11],
+            "tail_number": ["N1AA", "N2AA"],
             "origin_airport_id": [100, 200],
             "origin_airport_code": ["AAA", "BBB"],
             "origin_city_name": ["Alpha, AA", "Beta, BB"],
