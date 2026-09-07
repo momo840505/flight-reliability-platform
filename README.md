@@ -108,17 +108,17 @@ I used these questions to decide what should go into the SQL views and Power BI 
 
 ```mermaid
 flowchart LR
-    A[BTS raw CSV] --> B[Raw profiling]
-    B --> C[Raw validation]
-    C --> D[Python cleaning and transformation]
-    D --> E[Snappy Parquet]
-    E --> F[Clean data validation]
-    F --> G[PostgreSQL warehouse schema]
-    G --> H[Load dimensions]
-    H --> I[Load flight fact]
-    I --> J[Warehouse validation]
-    J --> K[SQL analytics views]
-    K --> L[Power BI]
+    A["BTS raw CSV"] --> B["Raw profiling"]
+    B --> C["Raw validation"]
+    C --> D["Python cleaning<br/>and transformation"]
+    D --> E["Snappy Parquet"]
+    E --> F["Clean data<br/>validation"]
+    F --> G["PostgreSQL<br/>warehouse schema"]
+    G --> H["Load dimensions"]
+    H --> I["Load flight fact"]
+    I --> J["Warehouse<br/>validation"]
+    J --> K["SQL analytics<br/>views"]
+    K --> L["Power BI"]
 ```
 
 ### Storage and reporting layers
