@@ -20,24 +20,32 @@ I built this project with U.S. Bureau of Transportation Statistics flight data. 
 For now, the project uses January 2024 data: **547,271 scheduled flight segments** across 15 reporting airlines and 334 airports. I kept it to one month while building the pipeline because it was large enough to make the validation and loading steps meaningful, but still quick enough to rerun when I changed something.
 
 ```text
-BTS CSV
+BTS raw CSV
   ↓
-raw profiling and validation
+Raw profiling
+  ↓
+Raw validation
   ↓
 Python cleaning and transformation
   ↓
 Snappy-compressed Parquet
   ↓
-PostgreSQL star schema
+Clean data validation
   ↓
-warehouse reconciliation
+PostgreSQL warehouse schema
+  ↓
+Load date, airline, and airport dimensions
+  ↓
+Load flight fact
+  ↓
+Warehouse validation and reconciliation
   ↓
 SQL analytics views
   ↓
 Power BI report
 ```
 
-I did not want this repo to be only a Power BI file. Most of the work is the data side: cleaning the source, checking bad rows, loading a small warehouse, and making sure the numbers still match after the load. The repo includes the code, SQL, tests, CI workflow, and the Power BI report I used at the end.
+I did not want this repo to be only a Power BI file. Most of the work is on the data side: cleaning the source, checking bad rows, loading the warehouse, and making sure the numbers still match after the load. The repo includes the Python code, SQL, tests, CI workflow, and the Power BI report I used at the end.
 
 ## Results from the January 2024 pilot
 
@@ -59,7 +67,7 @@ I did not want this repo to be only a Power BI file. Most of the work is the dat
 | Raw CSV | ~141 MB |
 | Clean Parquet | ~19.76 MB |
 
-The cleaned Parquet file is about 86% smaller than the original CSV, which also made the later reloads faster while I was working on the project.
+The cleaned Parquet file is about 86% smaller than the original CSV, which also made later reloads faster while I was working on the project.
 
 ## Dashboard
 
@@ -100,14 +108,17 @@ I used these questions to decide what should go into the SQL views and Power BI 
 
 ```mermaid
 flowchart LR
-    A[BTS raw CSV] --> B[Raw validation]
-    B --> C[Python transform]
-    C --> D[Parquet]
-    D --> E[Dimensions]
-    E --> F[Flight fact]
-    F --> G[Warehouse validation]
-    G --> H[SQL analytics views]
-    H --> I[Power BI]
+    A[BTS raw CSV] --> B[Raw profiling]
+    B --> C[Raw validation]
+    C --> D[Python cleaning and transformation]
+    D --> E[Snappy Parquet]
+    E --> F[Clean data validation]
+    F --> G[PostgreSQL warehouse schema]
+    G --> H[Load dimensions]
+    H --> I[Load flight fact]
+    I --> J[Warehouse validation]
+    J --> K[SQL analytics views]
+    K --> L[Power BI]
 ```
 
 ### Storage and reporting layers
@@ -115,7 +126,7 @@ flowchart LR
 | Layer | Purpose |
 |---|---|
 | Raw | Unmodified BTS monthly extract |
-| Interim | Profiles, validation output, temporary load files |
+| Interim | Profiles, validation output, and temporary load files |
 | Processed | Typed, compressed Parquet output |
 | Warehouse | PostgreSQL dimensions and flight fact table |
 | Analytics | Reusable SQL views for reporting |
@@ -175,6 +186,8 @@ I also put the basic rules in PostgreSQL instead of relying only on Python check
 - stable BTS airport ID
 - airport code, city, and state fields
 - reused for both origin and destination keys
+
+The airport table is reused twice in the fact table: once through `origin_airport_key` and once through `destination_airport_key`.
 
 ### Fact table
 
@@ -252,15 +265,20 @@ The raw validation and transformation scripts are still tied to the January 2024
 
 ## Tests and CI
 
-I started with transformation unit tests, then added loader tests and a small PostgreSQL integration test after I found that some database problems cannot be caught by testing pandas code alone. GitHub Actions starts PostgreSQL 18 and runs:
+I started with transformation unit tests, then added loader tests and a PostgreSQL integration test after I found that some database problems cannot be caught by testing pandas code alone.
 
-- transformation unit tests;
-- warehouse-helper unit tests;
-- a PostgreSQL integration test;
-- a smoke test against the analytics views;
-- Python bytecode compilation.
+GitHub Actions starts PostgreSQL 18 and runs the same warehouse schema and analytics SQL used by the project, then runs the Python test suite and source compilation checks.
 
-The integration test uses a small test dataset. It creates the same warehouse schema and analytics views used by the project, runs the loader, and checks a few final rows and metrics. I keep the fixture small so the CI run stays fast.
+The test suite covers:
+
+- transformation helper logic;
+- warehouse helper logic;
+- surrogate-key mapping;
+- PostgreSQL loading;
+- analytics-view smoke checks;
+- Python source compilation.
+
+The PostgreSQL integration test uses a small test dataset. It loads the same warehouse tables used by the project and checks that the expected rows are available through the analytics views.
 
 See [`docs/testing_strategy.md`](docs/testing_strategy.md) for details.
 
@@ -305,7 +323,7 @@ Change the password in `.env` if needed. Docker Compose reads the same environme
 docker compose up -d postgres
 ```
 
-The PostgreSQL 18 data volume is mounted at `/var/lib/postgresql`, matching the current official image layout.
+The PostgreSQL 18 data volume is mounted at `/var/lib/postgresql`.
 
 ### 5. Add the BTS source file
 
@@ -323,13 +341,13 @@ Profile the raw extract:
 python src\validation\inspect_raw_data.py
 ```
 
-Validate it:
+Validate the raw data:
 
 ```powershell
 python src\validation\validate_raw_data.py
 ```
 
-Transform it:
+Clean and transform it:
 
 ```powershell
 python src\transform\clean_flight_data.py
@@ -384,21 +402,29 @@ powerbi/flight_reliability_dashboard.pbix
 
 ```text
 flight-reliability-platform/
-├── .github/workflows/tests.yml
+├── .github/
+│   └── workflows/
+│       └── tests.yml
 ├── data/
 │   ├── README.md
 │   ├── raw/
 │   ├── interim/
 │   └── processed/
 ├── docs/
-│   ├── images/dashboard/
+│   ├── images/
+│   │   └── dashboard/
 │   ├── incremental_loading_design.md
 │   └── testing_strategy.md
+├── models/
+│   └── .gitkeep
 ├── powerbi/
+│   ├── .gitkeep
 │   └── flight_reliability_dashboard.pbix
 ├── sql/
-│   ├── analytics/001_create_analytics_views.sql
-│   └── schema/001_create_warehouse.sql
+│   ├── analytics/
+│   │   └── 001_create_analytics_views.sql
+│   └── schema/
+│       └── 001_create_warehouse.sql
 ├── src/
 │   ├── contracts.py
 │   ├── database.py
@@ -417,7 +443,10 @@ flight-reliability-platform/
 │   ├── test_load_helpers.py
 │   └── test_postgres_integration.py
 ├── .env.example
+├── .gitattributes
+├── .gitignore
 ├── docker-compose.yml
+├── LICENSE
 ├── pyproject.toml
 ├── requirements.txt
 └── README.md
@@ -442,7 +471,7 @@ If I continue this project, I would work on these in roughly this order:
 
 1. monthly batch ingestion with a checksum-based load-control table;
 2. a source manifest for reproducible BTS extracts;
-3. dbt models/tests for the analytics layer;
+3. dbt models and tests for the analytics layer;
 4. migration of the Power BI report to PBIP/TMDL for source control;
 5. scheduled deployment on AWS or Azure with secrets and monitoring.
 
